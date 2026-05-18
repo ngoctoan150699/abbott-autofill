@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Abbott Auto Fill Helper",
+  "version": "1.0.0",
+  "description": "Auto fill Abbott event pages after GeoSpoof location is set to Quang Ngai hospital.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>", "https://api.viotp.com/*"],
+  "action": {
+    "default_title": "Abbott Auto Fill",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

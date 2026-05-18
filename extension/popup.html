@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Abbott Auto Fill</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="badge">Abbott Helper</div>
+      <h1>Auto Fill sau khi fake vị trí</h1>
+      <p>Vị trí bắt buộc: BVĐK tỉnh Quảng Ngãi.</p>
+    </section>
+
+    <section class="location-card">
+      <div>
+        <span class="label">Latitude</span>
+        <strong>15.1151</strong>
+      </div>
+      <div>
+        <span class="label">Longitude</span>
+        <strong>108.7905</strong>
+      </div>
+      <p>Bệnh viện Đa khoa tỉnh Quảng Ngãi, Trần Tế Xương, Trần Phú, Phường Nghĩa Lộ, Tỉnh Quảng Ngãi, Việt Nam</p>
+    </section>
+
+    <label class="field">
+      <span>Link Abbott</span>
+      <input id="eventLink" type="url" placeholder="Dán link hoặc kéo QR vào đây" />
+    </label>
+
+    <div id="dropZone" class="drop-zone">
+      <div class="drop-icon">QR</div>
+      <p>Kéo ảnh QR vào đây</p>
+      <small>Nếu trình duyệt hỗ trợ BarcodeDetector, extension sẽ tự đọc link.</small>
+      <input id="qrFile" type="file" accept="image/*" hidden />
+    </div>
+
+    <section class="viotp-card">
+      <label class="field token-field">
+        <span>Token ViOTP</span>
+        <input id="viotpToken" type="password" placeholder="Dán token ViOTP" autocomplete="off" />
+      </label>
+      <div class="grid api-grid">
+        <button id="checkToken">Check token</button>
+        <button id="rentPhone" class="accent">Lấy số ViOTP</button>
+        <button id="getOtp" class="accent-2">Lấy OTP</button>
+      </div>
+    </section>
+
+    <section class="quick-grid">
+      <label class="field compact-field">
+        <span>Số điện thoại</span>
+        <input id="phone" type="tel" inputmode="numeric" placeholder="VD: 0987654321" />
+      </label>
+      <label class="field compact-field">
+        <span>OTP / Mã</span>
+        <input id="otp" type="tel" inputmode="numeric" maxlength="6" placeholder="6 số" />
+      </label>
+    </section>
+
+    <label class="field">
+      <span>Danh sách người tham dự</span>
+      <textarea id="attendees" rows="6" placeholder="Họ tên - Khoa - Chức danh"></textarea>
+    </label>
+
+    <div class="grid">
+      <button id="openLink" class="primary">Mở / Reload link</button>
+      <button id="saveData">Lưu dữ liệu</button>
+      <button id="fillPage">Auto fill trang hiện tại</button>
+      <button id="nextPerson">Người tiếp theo</button>
+    </div>
+
+    <p id="status" class="status">Hãy bật GeoSpoof Location Protection trước, rồi reload trang.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

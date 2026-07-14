@@ -45,7 +45,8 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             borderSide: const BorderSide(color: Color(0xFF5EEAD4), width: 1.4),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         ),
       ),
       home: const MainScreen(),
@@ -62,11 +63,11 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final TextEditingController _urlController = TextEditingController();
-  final TextEditingController _tokenController = TextEditingController(text: 'de6faac93d8d4f3294070fe48a11224b');
-  final TextEditingController _listDataController = TextEditingController();
-  
+  final TextEditingController _tokenController =
+      TextEditingController(text: 'de6faac93d8d4f3294070fe48a11224b');
+
   late final WebViewController _webViewController;
-  
+
   bool _isLoadingService = false;
   bool _isGettingPhone = false;
   bool _isGettingOtp = false;
@@ -114,8 +115,16 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       _tokenController.text = token ?? 'de6faac93d8d4f3294070fe48a11224b';
       _urlController.text = lastUrl ?? '';
-      _listDataController.text = peopleData ?? '';
-      _parseData();
+      if (peopleData != null && peopleData.isNotEmpty) {
+        try {
+          final List<dynamic> decoded = jsonDecode(peopleData);
+          _people = decoded.map((e) => Map<String, String>.from(e)).toList();
+        } catch (_) {
+          _people = [];
+        }
+      } else {
+        _people = [];
+      }
     });
     if (_urlController.text.isNotEmpty) {
       _loadUrl();
@@ -125,7 +134,8 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _savePreferences() async {
     await AppPreferences.setString('viotp_token', _tokenController.text);
     await AppPreferences.setString('last_url', _urlController.text);
-    await AppPreferences.setString('people_data', _listDataController.text);
+    final peopleJson = jsonEncode(_people);
+    await AppPreferences.setString('people_data', peopleJson);
   }
 
   void _loadUrl() {
@@ -140,78 +150,7 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  String _cleanNoAccent(String input) {
-    const vietnamese = {
-      'à':'a','á':'a','ạ':'a','ả':'a','ã':'a','â':'a','ầ':'a','ấ':'a','ậ':'a','ẩ':'a','ẫ':'a','ă':'a','ằ':'a','ắ':'a','ặ':'a','ẳ':'a','ẵ':'a',
-      'è':'e','é':'e','ẹ':'e','ẻ':'e','ẽ':'e','ê':'e','ề':'e','ế':'e','ệ':'e','ể':'e','ễ':'e',
-      'ì':'i','í':'i','ị':'i','ỉ':'i','ĩ':'i',
-      'ò':'o','ó':'o','ọ':'o','ỏ':'o','õ':'o','ô':'o','ồ':'o','ố':'o','ộ':'o','ổ':'o','ỗ':'o','ơ':'o','ờ':'o','ớ':'o','ợ':'o','ở':'o','ỡ':'o',
-      'ù':'u','ú':'u','ụ':'u','ủ':'u','ũ':'u','ư':'u','ừ':'u','ứ':'u','ự':'u','ử':'u','ữ':'u',
-      'ỳ':'y','ý':'y','ỵ':'y','ỷ':'y','ỹ':'y','đ':'d',
-      'À':'A','Á':'A','Ạ':'A','Ả':'A','Ã':'A','Â':'A','Ầ':'A','Ấ':'A','Ậ':'A','Ẩ':'A','Ẫ':'A','Ă':'A','Ằ':'A','Ắ':'A','Ặ':'A','Ẳ':'A','Ẵ':'A',
-      'È':'E','É':'E','Ẹ':'E','Ẻ':'E','Ẽ':'E','Ê':'E','Ề':'E','Ế':'E','Ệ':'E','Ể':'E','Ễ':'E',
-      'Ì':'I','Í':'I','Ị':'I','Ỉ':'I','Ĩ':'I',
-      'Ò':'O','Ó':'O','Ọ':'O','Ỏ':'O','Õ':'O','Ô':'O','Ồ':'O','Ố':'O','Ộ':'O','Ổ':'O','Ỗ':'O','Ơ':'O','Ờ':'O','Ớ':'O','Ợ':'O','Ở':'O','Ỡ':'O',
-      'Ù':'U','Ú':'U','Ụ':'U','Ủ':'U','Ũ':'U','Ư':'U','Ừ':'U','Ứ':'U','Ự':'U','Ử':'U','Ữ':'U',
-      'Ỳ':'Y','Ý':'Y','Ỵ':'Y','Ỷ':'Y','Ỹ':'Y','Đ':'D',
-    };
-    var out = input.trim();
-    vietnamese.forEach((k, v) => out = out.replaceAll(k, v));
-    return out.replaceAll(RegExp(r'\s+'), ' ');
-  }
 
-  String _formatDepartment(String raw) {
-    final s = _cleanNoAccent(raw).toLowerCase();
-    if (s.contains('gay me')) return 'Khoa Gay Me Hoi Suc';
-    if (s.contains('ngoai than kinh')) return 'Khoa Ngoai Than Kinh';
-    if (s.contains('chan thuong') || s.contains('chinh hinh') || s.contains('bong')) {
-      return 'Khoa Chan Thuong Chinh Hinh - Bong';
-    }
-    return _titleCase(_cleanNoAccent(raw));
-  }
-
-  String _formatTitle(String raw) {
-    final s = _cleanNoAccent(raw).toLowerCase().replaceAll('.', '').trim();
-    if (s == 'bs' || s.contains('bac si') || s.contains('bac sy')) return 'Bac Sy Dieu Tri';
-    if (s.contains('truong')) return 'Dieu Duong Truong';
-    if (s == 'dd' || s.contains('dieu duong')) return 'Dieu Duong';
-    return _titleCase(_cleanNoAccent(raw));
-  }
-
-  String _titleCase(String input) {
-    return input
-        .split(' ')
-        .where((w) => w.isNotEmpty)
-        .map((w) => w[0].toUpperCase() + (w.length > 1 ? w.substring(1).toLowerCase() : ''))
-        .join(' ');
-  }
-
-  void _parseData() {
-    final lines = _listDataController.text.split('\n');
-    final parsed = <Map<String, String>>[];
-    for (var line in lines) {
-      if (line.trim().isEmpty) continue;
-      final parts = line.split('-');
-      if (parts.length >= 2) {
-        final rawDepartment = parts[1].trim();
-        final rawRole = parts.length > 2 ? parts[2].trim() : '';
-        parsed.add({
-          'name': parts[0].trim(),
-          'department': _formatDepartment(rawDepartment),
-          'role': _formatTitle(rawRole),
-          'rawDepartment': rawDepartment,
-          'rawRole': rawRole,
-        });
-      }
-    }
-    setState(() {
-      _people = parsed;
-      if (_currentPersonIndex >= _people.length) {
-        _currentPersonIndex = 0;
-      }
-    });
-    _savePreferences();
-  }
 
   Future<void> _fetchServiceId() async {
     setState(() {
@@ -219,23 +158,29 @@ class _MainScreenState extends State<MainScreen> {
     });
     try {
       final token = _tokenController.text.trim();
-      final url = Uri.parse('https://api.viotp.com/service/getv2?token=$token&country=vn');
+      final url = Uri.parse(
+          'https://api.viotp.com/service/getv2?token=$token&country=vn');
       final response = await http.get(url);
       final json = jsonDecode(response.body);
-      
+
       if (json['status_code'] == 200) {
         final data = json['data'];
         if (data is! List) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dữ liệu dịch vụ ViOTP không hợp lệ!')),
+            const SnackBar(
+                content: Text('Dữ liệu dịch vụ ViOTP không hợp lệ!')),
           );
           return;
         }
 
         Map? service;
         for (final item in data) {
-          if (item is Map && (item['name'] ?? '').toString().toLowerCase().contains('abbott')) {
+          if (item is Map &&
+              (item['name'] ?? '')
+                  .toString()
+                  .toLowerCase()
+                  .contains('abbott')) {
             service = item;
             break;
           }
@@ -245,16 +190,21 @@ class _MainScreenState extends State<MainScreen> {
         if (serviceId != null) {
           _abbottServiceId = serviceId;
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Tìm thấy dịch vụ Abbott (ID: $_abbottServiceId)')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text('Tìm thấy dịch vụ Abbott (ID: $_abbottServiceId)')));
         } else {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không tìm thấy dịch vụ Abbott trên ViOTP!')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Không tìm thấy dịch vụ Abbott trên ViOTP!')));
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
     } finally {
       setState(() {
         _isLoadingService = false;
@@ -277,10 +227,11 @@ class _MainScreenState extends State<MainScreen> {
 
     try {
       final token = _tokenController.text.trim();
-      final url = Uri.parse('https://api.viotp.com/request/getv2?token=$token&serviceId=$_abbottServiceId');
+      final url = Uri.parse(
+          'https://api.viotp.com/request/getv2?token=$token&serviceId=$_abbottServiceId');
       final response = await http.get(url);
       final json = jsonDecode(response.body);
-      
+
       if (json['status_code'] == 200) {
         String phone = json['data']['phone_number'];
         if (!phone.startsWith('0')) {
@@ -291,12 +242,15 @@ class _MainScreenState extends State<MainScreen> {
           _currentRequestId = json['data']['request_id'].toString();
         });
         Clipboard.setData(ClipboardData(text: _currentPhoneNumber));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lấy và copy số điện thoại!')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Đã lấy và copy số điện thoại!')));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
     } finally {
       setState(() {
         _isGettingPhone = false;
@@ -306,7 +260,8 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _getOtp() async {
     if (_currentRequestId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chưa có số điện thoại nào đang thuê!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Chưa có số điện thoại nào đang thuê!')));
       return;
     }
 
@@ -324,7 +279,8 @@ class _MainScreenState extends State<MainScreen> {
           _otpStatusText = 'Đang chờ OTP... còn ${60 - second}s';
         });
 
-        final url = Uri.parse('https://api.viotp.com/session/getv2?requestId=$_currentRequestId&token=$token');
+        final url = Uri.parse(
+            'https://api.viotp.com/session/getv2?requestId=$_currentRequestId&token=$token');
         final response = await http.get(url);
         final json = jsonDecode(response.body);
 
@@ -338,15 +294,18 @@ class _MainScreenState extends State<MainScreen> {
             });
             Clipboard.setData(ClipboardData(text: otp));
             await _fillOtpInWeb();
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã nhận, copy và điền OTP!')));
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Đã nhận, copy và điền OTP!')));
             return;
           }
           if (status != 0) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phiên đã hết hạn hoặc lỗi!')));
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Phiên đã hết hạn hoặc lỗi!')));
             return;
           }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
           return;
         }
 
@@ -356,9 +315,11 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         _otpStatusText = 'Không lấy được OTP sau 60s';
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không lấy mã OTP được sau 60 giây.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không lấy mã OTP được sau 60 giây.')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -396,6 +357,7 @@ class _MainScreenState extends State<MainScreen> {
           el.value = val;
           el.dispatchEvent(new Event('input', {bubbles: true}));
           el.dispatchEvent(new Event('change', {bubbles: true}));
+          el.blur();
           return true;
         }
         function fillBy(keys, val) {
@@ -424,20 +386,167 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _fillCurrentPersonInWeb() async {
     if (_people.isEmpty) return;
     final p = _people[_currentPersonIndex];
-    await _fillWebFields({
+    
+    final payload = jsonEncode({
       'name': p['name'] ?? '',
       'department': p['department'] ?? '',
       'role': p['role'] ?? '',
-      'attendeeRole': 'Người tham dự',
+      'attendeeRole': 'Nguoi tham du',
       'hospital': 'BENH VIEN DA KHOA TINH QUANG NGAI',
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã điền thông tin người hiện tại. Vui lòng kiểm tra rồi tự bấm gửi.')));
+
+    await _webViewController.runJavaScript('''
+      (async function() {
+        const data = $payload;
+        const norm = (s) => (s || '').toString().toLowerCase()
+          .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+          .replace(/đ/g, 'd').replace(/\\s+/g, ' ').trim();
+        const inputs = Array.from(document.querySelectorAll('input, textarea'));
+        
+        function labelOf(el) {
+          let txt = '';
+          if (el.id) {
+            const label = document.querySelector('label[for="' + el.id + '"]');
+            if (label) txt += ' ' + label.innerText;
+          }
+          let pNode = el;
+          for (let i = 0; i < 4 && pNode; i++, pNode = pNode.parentElement) {
+            txt += ' ' + (pNode.innerText || '');
+          }
+          txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
+          return norm(txt);
+        }
+        
+        function setVal(el, val) {
+          if (!el || val == null || val === '') return false;
+          el.focus();
+          el.value = val;
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+          el.dispatchEvent(new Event('change', {bubbles: true}));
+          el.blur();
+          return true;
+        }
+
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+
+        // 1. Fill Name
+        const nameInput = inputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
+        if (nameInput) {
+           setVal(nameInput, data.name);
+           await delay(300);
+        }
+
+        // Helper to fill Element UI dropdown
+        async function fillDropdown(keywords, targetVal) {
+          if (!targetVal) return;
+          const selectWrappers = Array.from(document.querySelectorAll('.el-select'));
+          const targetWrapper = selectWrappers.find(w => keywords.some(k => norm(w.innerText + ' ' + w.innerHTML).includes(k)));
+          
+          if (targetWrapper) {
+            const input = targetWrapper.querySelector('input');
+            if (input) {
+               input.click(); // Open dropdown
+               await delay(100);
+               input.focus();
+               input.value = targetVal;
+               input.dispatchEvent(new Event('input', {bubbles: true}));
+               input.blur();
+               
+               await delay(400); // Wait for options to filter/appear
+               
+               // Find matching option
+               const options = Array.from(document.querySelectorAll('.el-select-dropdown__item')).filter(o => o.offsetParent !== null); // only visible
+               const bestOption = options.find(opt => {
+                  const optTxt = norm(opt.innerText.trim());
+                  const tVal = norm(targetVal);
+                  return optTxt === tVal || optTxt.includes(tVal) || tVal.includes(optTxt);
+               });
+               
+               if (bestOption) {
+                  bestOption.click();
+               }
+            }
+          }
+        }
+
+        // 2. Fill Role (Vai trò)
+        await fillDropdown(['vai tro', 'role'], data.attendeeRole);
+        await delay(500);
+
+        // 3. Fill Hospital (Bệnh viện)
+        await fillDropdown(['benh vien', 'hospital'], data.hospital);
+        await delay(500);
+
+        // 4. Fill Department (Phòng ban/Khoa)
+        await fillDropdown(['phong ban', 'khoa', 'department'], data.department);
+        await delay(500);
+
+        // 5. Fill Title (Chức danh)
+        await fillDropdown(['chuc danh', 'title'], data.role);
+        await delay(300);
+
+        // 6. Tick checkbox "Đồng ý"
+        const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+        const agreeCheckbox = checkboxes.find(c => {
+           let pNode = c.parentElement;
+           let txt = '';
+           for(let i=0; i<3 && pNode; i++, pNode = pNode.parentElement) {
+              txt += ' ' + (pNode.innerText || '');
+           }
+           return norm(txt).includes('dong y') || norm(txt).includes('chap nhan');
+        });
+        if (agreeCheckbox && !agreeCheckbox.checked) {
+           agreeCheckbox.click();
+        }
+
+      })();
+    ''');
+    
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'Đang điền thông tin tuần tự. Vui lòng đợi và kiểm tra...')));
+  }
+
+  Future<void> _submitFormInWeb() async {
+    await _webViewController.runJavaScript('''
+      (function() {
+        const norm = (s) => (s || '').toString().toLowerCase()
+          .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+          .replace(/đ/g, 'd').replace(/\\s+/g, ' ').trim();
+        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a'));
+        
+        const submitKeywords = ['gui', 'xac nhan', 'submit', 'dang ky', 'gui dang ky', 'hoan tat', 'gui ma'];
+        
+        let foundBtn = null;
+        for (const btn of buttons) {
+          const txt = norm(btn.innerText || btn.value || '');
+          if (submitKeywords.some(k => txt === k || (txt.length < 25 && txt.includes(k)))) {
+            foundBtn = btn;
+            break;
+          }
+        }
+        
+        if (foundBtn) {
+          foundBtn.focus();
+          foundBtn.click();
+          return;
+        }
+
+        const form = document.querySelector('form');
+        if (form) {
+          form.submit();
+        }
+      })();
+    ''');
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Đã kích hoạt hành động gửi form trên web!')));
   }
 
   void _copy(String text, String label) {
     if (text.isEmpty) return;
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã copy $label!')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Đã copy $label!')));
   }
 
   @override
@@ -451,7 +560,8 @@ class _MainScreenState extends State<MainScreen> {
         foregroundColor: Colors.white,
         title: const Text(
           'Abbott Helper',
-          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .2, fontSize: 16),
+          style: TextStyle(
+              fontWeight: FontWeight.w800, letterSpacing: .2, fontSize: 16),
         ),
         actions: [
           IconButton.filledTonal(
@@ -561,8 +671,12 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-              Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.58), fontSize: 11)),
+              Text(title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 15)),
+              Text(subtitle,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.58), fontSize: 11)),
             ],
           ),
         ),
@@ -633,7 +747,7 @@ class _MainScreenState extends State<MainScreen> {
 
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-      constraints: const BoxConstraints(maxHeight: 168),
+      constraints: const BoxConstraints(maxHeight: 230),
       padding: const EdgeInsets.all(8),
       decoration: _glassDecoration(radius: 22),
       child: SingleChildScrollView(
@@ -641,121 +755,174 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.sms_rounded, color: const Color(0xFF5EEAD4), size: 18),
-              const SizedBox(width: 6),
-              const Text('OTP', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
-              const Spacer(),
-              if (_otpStatusText.isNotEmpty)
-                Flexible(
-                  child: Text(
-                    _otpStatusText,
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF93C5FD), fontWeight: FontWeight.w700),
+          children: [
+            Row(
+              children: [
+                Icon(Icons.sms_rounded,
+                    color: const Color(0xFF5EEAD4), size: 18),
+                const SizedBox(width: 6),
+                const Text('OTP',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                const Spacer(),
+                if (_otpStatusText.isNotEmpty)
+                  Flexible(
+                    child: Text(
+                      _otpStatusText,
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF93C5FD),
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: (_isGettingPhone || _isLoadingService)
+                      ? null
+                      : _getPhoneNumber,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(66, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _loadingIcon(_isGettingPhone || _isLoadingService,
+                        Icons.phone_android_rounded),
+                    const SizedBox(width: 4),
+                    const Text('Số'),
+                  ]),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                    child: _valuePill(
+                        _currentPhoneNumber, 'SĐT', Icons.call_rounded)),
+                IconButton.filledTonal(
+                  tooltip: 'Copy số',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.copy_rounded),
+                  onPressed: _currentPhoneNumber.isEmpty
+                      ? null
+                      : () => _copy(_currentPhoneNumber, 'Số điện thoại'),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Điền số',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
+                  onPressed:
+                      _currentPhoneNumber.isEmpty ? null : _fillPhoneInWeb,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: _isGettingOtp ? null : _getOtp,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(66, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
+                    const SizedBox(width: 4),
+                    Text(_isGettingOtp ? 'Chờ' : 'OTP'),
+                  ]),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                    child: _valuePill(
+                        _currentOtp, 'Mã OTP', Icons.password_rounded)),
+                IconButton.filledTonal(
+                  tooltip: 'Copy OTP',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.copy_rounded),
+                  onPressed: _currentOtp.isEmpty
+                      ? null
+                      : () => _copy(_currentOtp, 'OTP'),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Điền OTP',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
+                  onPressed: _currentOtp.isEmpty ? null : _fillOtpInWeb,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 32,
+                    child: FilledButton.icon(
+                      onPressed: _submitFormInWeb,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFF0ABFC),
+                        foregroundColor: const Color(0xFF1E0824),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: const Icon(Icons.send_rounded, size: 14),
+                      label: const Text(
+                        'Gửi Form Đăng Ký (Web)',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                            letterSpacing: .3),
+                      ),
+                    ),
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              FilledButton(
-                onPressed: (_isGettingPhone || _isLoadingService) ? null : _getPhoneNumber,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(66, 32),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  visualDensity: VisualDensity.compact,
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (hasPerson) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF5EEAD4).withOpacity(0.16),
+                      const Color(0xFFF0ABFC).withOpacity(0.10),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: Colors.white.withOpacity(0.10)),
                 ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  _loadingIcon(_isGettingPhone || _isLoadingService, Icons.phone_android_rounded),
-                  const SizedBox(width: 4),
-                  const Text('Số'),
-                ]),
-              ),
-              const SizedBox(width: 6),
-              Expanded(child: _valuePill(_currentPhoneNumber, 'SĐT', Icons.call_rounded)),
-              IconButton.filledTonal(
-                tooltip: 'Copy số',
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                icon: const Icon(Icons.copy_rounded),
-                onPressed: _currentPhoneNumber.isEmpty ? null : () => _copy(_currentPhoneNumber, 'Số điện thoại'),
-              ),
-              IconButton.filledTonal(
-                tooltip: 'Điền số',
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
-                onPressed: _currentPhoneNumber.isEmpty ? null : _fillPhoneInWeb,
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              FilledButton(
-                onPressed: _isGettingOtp ? null : _getOtp,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(66, 32),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  visualDensity: VisualDensity.compact,
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
-                  const SizedBox(width: 4),
-                  Text(_isGettingOtp ? 'Chờ' : 'OTP'),
-                ]),
-              ),
-              const SizedBox(width: 6),
-              Expanded(child: _valuePill(_currentOtp, 'Mã OTP', Icons.password_rounded)),
-              IconButton.filledTonal(
-                tooltip: 'Copy OTP',
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                icon: const Icon(Icons.copy_rounded),
-                onPressed: _currentOtp.isEmpty ? null : () => _copy(_currentOtp, 'OTP'),
-              ),
-              IconButton.filledTonal(
-                tooltip: 'Điền OTP',
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
-                onPressed: _currentOtp.isEmpty ? null : _fillOtpInWeb,
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          SizedBox(
-            height: 34,
-            child: hasPerson
-                ? Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF5EEAD4).withOpacity(0.16),
-                          const Color(0xFFF0ABFC).withOpacity(0.10),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.10)),
-                    ),
-                    child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
                       children: [
                         CircleAvatar(
                           radius: 11,
                           backgroundColor: const Color(0xFF5EEAD4),
                           foregroundColor: const Color(0xFF06211D),
-                          child: Text('${_currentPersonIndex + 1}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                          child: Text('${_currentPersonIndex + 1}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w900, fontSize: 12)),
                         ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             current?['name'] ?? '',
-                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w900, fontSize: 12),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -773,95 +940,408 @@ class _MainScreenState extends State<MainScreen> {
                           icon: const Icon(Icons.navigate_next_rounded),
                           onPressed: () {
                             setState(() {
-                              _currentPersonIndex = _currentPersonIndex < _people.length - 1 ? _currentPersonIndex + 1 : 0;
+                              _currentPersonIndex =
+                                  _currentPersonIndex < _people.length - 1
+                                      ? _currentPersonIndex + 1
+                                      : 0;
                             });
                           },
                         ),
                       ],
                     ),
-                  )
-                : Container(
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(16),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.badge_outlined, size: 12, color: Color(0xFFF0ABFC)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    current?['role'] ?? 'Chưa có chức vụ',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withOpacity(0.8),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.local_hospital_outlined, size: 12, color: Color(0xFF5EEAD4)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    current?['department'] ?? 'Chưa có khoa',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withOpacity(0.8),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Text(
-                      'Chưa có dữ liệu. Bấm cài đặt để dán NOIDUNGDIEN.TXT.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-          ),
-        ],
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                height: 38,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  'Chưa có dữ liệu. Bấm cài đặt để dán NOIDUNGDIEN.TXT.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 
-
-  void _showSettingsDialog() {
-    showDialog(
+  void _showSettingsDialog() async {
+    final result = await showDialog<List<Map<String, String>>>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF101827),
-          surfaceTintColor: const Color(0xFF5EEAD4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
-          title: const Row(
-            children: [
-              Icon(Icons.tune_rounded, color: Color(0xFF5EEAD4)),
-              SizedBox(width: 10),
-              Text('Cài đặt dữ liệu'),
-            ],
-          ),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _tokenController,
+      barrierDismissible: false,
+      builder: (context) => PeopleEditorDialog(
+        initialPeople: _people,
+        tokenController: _tokenController,
+      ),
+    );
+    
+    if (result != null) {
+      setState(() {
+        _people = result;
+        if (_currentPersonIndex >= _people.length) {
+          _currentPersonIndex = 0;
+        }
+      });
+      _savePreferences();
+    }
+  }
+}
+
+const List<String> kDepartments = [
+  'Khoa Noi Tim Mach',
+  'Khoa Phau Thuat Gay Me - Hoi Suc',
+  'Khoa Kham Benh & Cap Cuu',
+  'Khoa Noi Tong Hop',
+  'Khoa Duoc',
+  'Khoa Hoi Suc Tich Cuc - Chong Doc',
+  'Khoa Chan Thuong Chinh Hinh - Bong',
+  'Khoa Chan Doan Hinh Anh',
+  'Khoa Ngoai Tong Hop',
+  'Khoa Than Nhan Tao',
+  'Khoa Noi Tieu Hoa',
+  'Khoa Kiem Soat Nhiem Khuan',
+  'Khoa Huyet Hoc',
+  'Khoa Noi Than Kinh',
+  'Khoa Dieu Tri Yeu Cau',
+  'Khoa Ngoai Tieu Hoa',
+  'Khoa Benh Nhiet Doi',
+  'Khoa Ngoai Than Kinh',
+  'Khoa Hoa Sinh',
+  'Khoa Phuc Hoi Chuc Nang',
+  'Khoa Rang Ham Mat',
+  'Khoa Ung Buou',
+  'Khoa Tai Mui Hong',
+  'Khoa Mat',
+  'Khoa Vi Sinh',
+  'Khoa Giai Phau Benh',
+  'Khoa Da Lieu',
+  'Phong Dieu Duong',
+  'Ban Giam Doc',
+  'Khoa Dinh Duong',
+  'Khac'
+];
+
+const List<String> kTitles = [
+  'Y Ta Truong/ Dieu Duong Truong',
+  'Giam Doc',
+  'Duoc sy',
+  'Pho Giam Doc',
+  'Truong Khoa',
+  'Pho Khoa',
+  'Bac Sy Dieu Tri',
+  'Y ta/ Dieu duong'
+];
+
+class PeopleEditorDialog extends StatefulWidget {
+  final List<Map<String, String>> initialPeople;
+  final TextEditingController tokenController;
+
+  const PeopleEditorDialog({
+    super.key,
+    required this.initialPeople,
+    required this.tokenController,
+  });
+
+  @override
+  State<PeopleEditorDialog> createState() => _PeopleEditorDialogState();
+}
+
+class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
+  late List<Map<String, String>> _people;
+  final TextEditingController _pasteController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _people = List.from(widget.initialPeople.map((e) => Map<String, String>.from(e)));
+  }
+
+  void _parsePastedData() {
+    final lines = _pasteController.text.split('\n');
+    for (var line in lines) {
+      if (line.trim().isEmpty) continue;
+      final parts = line.split('-');
+      if (parts.length >= 2) {
+        final rawDepartment = parts[1].trim();
+        final rawRole = parts.length > 2 ? parts[2].trim() : '';
+        
+        String guessDept = _formatDepartment(rawDepartment);
+        if (!kDepartments.contains(guessDept)) guessDept = kDepartments.first;
+        
+        String guessRole = _formatTitle(rawRole);
+        if (!kTitles.contains(guessRole)) guessRole = kTitles.first;
+
+        _people.add({
+          'name': parts[0].trim(),
+          'department': guessDept,
+          'role': guessRole,
+        });
+      }
+    }
+    setState(() {
+      _pasteController.clear();
+    });
+  }
+
+  String _cleanNoAccent(String input) {
+    const vietnamese = {
+      'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a', 'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
+      'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
+      'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e', 'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
+      'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
+      'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o', 'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
+      'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
+      'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u', 'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
+      'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+      'đ': 'd',
+      'À': 'A', 'Á': 'A', 'Ạ': 'A', 'Ả': 'A', 'Ã': 'A', 'Â': 'A', 'Ầ': 'A', 'Ấ': 'A', 'Ậ': 'A', 'Ẩ': 'A', 'Ẫ': 'A',
+      'Ă': 'A', 'Ằ': 'A', 'Ắ': 'A', 'Ặ': 'A', 'Ẳ': 'A', 'Ẵ': 'A',
+      'È': 'E', 'É': 'E', 'Ẹ': 'E', 'Ẻ': 'E', 'Ẽ': 'E', 'Ê': 'E', 'Ề': 'E', 'Ế': 'E', 'Ệ': 'E', 'Ể': 'E', 'Ễ': 'E',
+      'Ì': 'I', 'Í': 'I', 'Ị': 'I', 'Ỉ': 'I', 'Ĩ': 'I',
+      'Ò': 'O', 'Ó': 'O', 'Ọ': 'O', 'Ỏ': 'O', 'Õ': 'O', 'Ô': 'O', 'Ồ': 'O', 'Ố': 'O', 'Ộ': 'O', 'Ổ': 'O', 'Ỗ': 'O',
+      'Ơ': 'O', 'Ờ': 'O', 'Ớ': 'O', 'Ợ': 'O', 'Ở': 'O', 'Ỡ': 'O',
+      'Ù': 'U', 'Ú': 'U', 'Ụ': 'U', 'Ủ': 'U', 'Ũ': 'U', 'Ư': 'U', 'Ừ': 'U', 'Ứ': 'U', 'Ự': 'U', 'Ử': 'U', 'Ữ': 'U',
+      'Ỳ': 'Y', 'Ý': 'Y', 'Ỵ': 'Y', 'Ỷ': 'Y', 'Ỹ': 'Y',
+      'Đ': 'D',
+    };
+    var out = input.trim();
+    vietnamese.forEach((k, v) => out = out.replaceAll(k, v));
+    return out.replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _titleCase(String input) {
+    return input.split(' ').where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase() + (w.length > 1 ? w.substring(1).toLowerCase() : '')).join(' ');
+  }
+
+  String _formatDepartment(String raw) {
+    final s = _cleanNoAccent(raw).toLowerCase();
+    if (s.contains('gay me')) return 'Khoa Phau Thuat Gay Me - Hoi Suc';
+    if (s.contains('ngoai than kinh')) return 'Khoa Ngoai Than Kinh';
+    if (s.contains('chan thuong') || s.contains('chinh hinh') || s.contains('bong')) return 'Khoa Chan Thuong Chinh Hinh - Bong';
+    if (s.contains('ngoai tong hop')) return 'Khoa Ngoai Tong Hop';
+    if (s.contains('noi tim mach')) return 'Khoa Noi Tim Mach';
+    if (s.contains('noi tong hop')) return 'Khoa Noi Tong Hop';
+    if (s.contains('ngoai tieu hoa')) return 'Khoa Ngoai Tieu Hoa';
+    if (s.contains('noi tieu hoa')) return 'Khoa Noi Tieu Hoa';
+    if (s.contains('noi than kinh')) return 'Khoa Noi Than Kinh';
+    final res = _titleCase(_cleanNoAccent(raw));
+    if (!res.toLowerCase().startsWith('khoa ') && !res.toLowerCase().startsWith('phong ')) return 'Khoa \$res';
+    return res;
+  }
+
+  String _formatTitle(String raw) {
+    final s = _cleanNoAccent(raw).toLowerCase().replaceAll('.', '').trim();
+    if (s == 'bs' || s.contains('bac si') || s.contains('bac sy')) return 'Bac Sy Dieu Tri';
+    if (s.contains('truong')) return 'Y Ta Truong/ Dieu Duong Truong';
+    if (s == 'dd' || s.contains('dieu duong') || s.contains('y ta')) return 'Y ta/ Dieu duong';
+    return _titleCase(_cleanNoAccent(raw));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF101827),
+      surfaceTintColor: const Color(0xFF5EEAD4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 900,
+        height: 700,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.tune_rounded, color: Color(0xFF5EEAD4)),
+                const SizedBox(width: 10),
+                const Text('Quản lý Dữ liệu Điền Tự động', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                SizedBox(
+                  width: 300,
+                  child: TextField(
+                    controller: widget.tokenController,
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.vpn_key_rounded),
                       labelText: 'ViOTP Token',
+                      isDense: true,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _listDataController,
-                    minLines: 6,
-                    maxLines: 10,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _pasteController,
+                    minLines: 3,
+                    maxLines: 4,
                     decoration: const InputDecoration(
                       alignLabelWithHint: true,
-                      prefixIcon: Icon(Icons.list_alt_rounded),
-                      labelText: 'Danh sách NOIDUNGDIEN.TXT',
+                      prefixIcon: Icon(Icons.paste_rounded),
+                      labelText: 'Dán danh sách NOIDUNGDIEN',
                       hintText: 'VD: Phạm Thị Thu Vân - gây mê hồi sức - bs',
                     ),
                   ),
-                ],
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 85,
+                  child: FilledButton.icon(
+                    onPressed: _parsePastedData,
+                    icon: const Icon(Icons.add_task_rounded),
+                    label: const Text('Phân tích\\nvà Thêm', textAlign: TextAlign.center),
+                  ),
+                )
+              ],
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.separated(
+                  itemCount: _people.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
+                  itemBuilder: (context, index) {
+                    final p = _people[index];
+                    return Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 30,
+                            alignment: Alignment.center,
+                            child: Text('\${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: TextEditingController(text: p['name'])..selection = TextSelection.collapsed(offset: (p['name'] ?? '').length),
+                              onChanged: (val) => p['name'] = val,
+                              decoration: const InputDecoration(isDense: true, labelText: 'Họ Tên'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 3,
+                            child: DropdownButtonFormField<String>(
+                              value: kDepartments.contains(p['department']) ? p['department'] : kDepartments.first,
+                              isExpanded: true,
+                              decoration: const InputDecoration(isDense: true, labelText: 'Khoa'),
+                              items: kDepartments.map((d) => DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)))).toList(),
+                              onChanged: (val) => setState(() => p['department'] = val!),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: DropdownButtonFormField<String>(
+                              value: kTitles.contains(p['role']) ? p['role'] : kTitles.first,
+                              isExpanded: true,
+                              decoration: const InputDecoration(isDense: true, labelText: 'Chức Danh'),
+                              items: kTitles.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 13)))).toList(),
+                              onChanged: (val) => setState(() => p['role'] = val!),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            onPressed: () => setState(() => _people.removeAt(index)),
+                          )
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Hủy'),
-            ),
-            FilledButton.icon(
-              onPressed: () {
-                _parseData();
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('Lưu'),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+                const SizedBox(width: 10),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(context, _people),
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('Lưu Thay Đổi'),
+                )
+              ],
             )
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }

@@ -2,7 +2,7 @@ name: abbott_helper
 description: Tool hỗ trợ điền form Abbott qua ViOTP
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.4+5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

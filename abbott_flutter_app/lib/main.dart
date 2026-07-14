@@ -1210,116 +1210,122 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
       backgroundColor: const Color(0xFF101827),
       surfaceTintColor: const Color(0xFF5EEAD4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.all(12),
       child: Container(
-        width: 900,
+        width: double.maxFinite,
         height: 700,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
                 const Icon(Icons.tune_rounded, color: Color(0xFF5EEAD4)),
                 const SizedBox(width: 10),
-                const Text('Quản lý Dữ liệu Điền Tự động', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Spacer(),
-                SizedBox(
-                  width: 300,
-                  child: TextField(
-                    controller: widget.tokenController,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.vpn_key_rounded),
-                      labelText: 'ViOTP Token',
-                      isDense: true,
-                    ),
-                  ),
-                ),
+                const Expanded(child: Text('Quản lý Dữ liệu Điền Tự động', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
               ],
             ),
-            const SizedBox(height: 20),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.tokenController,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.vpn_key_rounded),
+                labelText: 'ViOTP Token',
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _pasteController,
-                    minLines: 3,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      alignLabelWithHint: true,
-                      prefixIcon: Icon(Icons.paste_rounded),
-                      labelText: 'Dán danh sách NOIDUNGDIEN',
-                      hintText: 'VD: Phạm Thị Thu Vân - gây mê hồi sức - bs',
-                    ),
+                TextField(
+                  controller: _pasteController,
+                  minLines: 3,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    alignLabelWithHint: true,
+                    prefixIcon: Icon(Icons.paste_rounded),
+                    labelText: 'Dán danh sách NOIDUNGDIEN',
+                    hintText: 'VD: Phạm Thị Thu Vân - gây mê hồi sức - bs',
                   ),
                 ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  height: 85,
-                  child: FilledButton.icon(
-                    onPressed: _parsePastedData,
-                    icon: const Icon(Icons.add_task_rounded),
-                    label: const Text('Phân tích\\nvà Thêm', textAlign: TextAlign.center),
-                  ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _parsePastedData,
+                  icon: const Icon(Icons.add_task_rounded),
+                  label: const Text('Phân tích và Thêm'),
                 )
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.white.withOpacity(0.1)),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: ListView.separated(
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(8),
                   itemCount: _people.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
                   itemBuilder: (context, index) {
                     final p = _people[index];
-                    return Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 30,
-                            alignment: Alignment.center,
-                            child: Text('\${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                          ),
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
+                    return Card(
+                      color: Colors.white.withOpacity(0.05),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.white.withOpacity(0.05))),
+                      elevation: 0,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: const Color(0xFF5EEAD4),
+                                      foregroundColor: const Color(0xFF06211D),
+                                      child: Text('${index + 1}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text('Thông tin người tham gia', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.white70)),
+                                  ],
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  onPressed: () => setState(() => _people.removeAt(index)),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                )
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
                               controller: TextEditingController(text: p['name'])..selection = TextSelection.collapsed(offset: (p['name'] ?? '').length),
                               onChanged: (val) => p['name'] = val,
                               decoration: const InputDecoration(isDense: true, labelText: 'Họ Tên'),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            flex: 3,
-                            child: DropdownButtonFormField<String>(
+                            const SizedBox(height: 10),
+                            DropdownButtonFormField<String>(
                               value: kDepartments.contains(p['department']) ? p['department'] : kDepartments.first,
                               isExpanded: true,
                               decoration: const InputDecoration(isDense: true, labelText: 'Khoa'),
                               items: kDepartments.map((d) => DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)))).toList(),
                               onChanged: (val) => setState(() => p['department'] = val!),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            flex: 2,
-                            child: DropdownButtonFormField<String>(
+                            const SizedBox(height: 10),
+                            DropdownButtonFormField<String>(
                               value: kTitles.contains(p['role']) ? p['role'] : kTitles.first,
                               isExpanded: true,
                               decoration: const InputDecoration(isDense: true, labelText: 'Chức Danh'),
                               items: kTitles.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 13)))).toList(),
                               onChanged: (val) => setState(() => p['role'] = val!),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                            onPressed: () => setState(() => _people.removeAt(index)),
-                          )
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   },

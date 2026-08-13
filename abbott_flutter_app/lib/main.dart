@@ -433,57 +433,82 @@ class _MainScreenState extends State<MainScreen> {
         const nameInput = inputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
         if (nameInput) {
            setVal(nameInput, data.name);
-           await delay(300);
+           await delay(700);
         }
 
-        // Helper to fill Element UI dropdown
-        async function fillDropdown(keywords, targetVal) {
-          if (!targetVal) return;
-          const selectWrappers = Array.from(document.querySelectorAll('.el-select'));
-          const targetWrapper = selectWrappers.find(w => keywords.some(k => norm(w.innerText + ' ' + w.innerHTML).includes(k)));
-          
-          if (targetWrapper) {
-            const input = targetWrapper.querySelector('input');
-            if (input) {
-               input.click(); // Open dropdown
-               await delay(100);
-               input.focus();
-               input.value = targetVal;
-               input.dispatchEvent(new Event('input', {bubbles: true}));
-               input.blur();
-               
-               await delay(400); // Wait for options to filter/appear
-               
-               // Find matching option
-               const options = Array.from(document.querySelectorAll('.el-select-dropdown__item')).filter(o => o.offsetParent !== null); // only visible
-               const bestOption = options.find(opt => {
-                  const optTxt = norm(opt.innerText.trim());
-                  const tVal = norm(targetVal);
-                  return optTxt === tVal || optTxt.includes(tVal) || tVal.includes(optTxt);
-               });
-               
-               if (bestOption) {
-                  bestOption.click();
-               }
+        // Helper to fill Element UI dropdown. fallbackIndex follows the form order:
+        // Vai trò, Bệnh viện, Phòng ban/Khoa, Chức danh.
+        async function fillDropdown(keywords, targetVal, fallbackIndex) {
+          if (!targetVal) return false;
+
+          const selectInputs = Array.from(
+            document.querySelectorAll('.el-select input, input[role="combobox"]')
+          ).filter((el, index, all) => all.indexOf(el) === index);
+          function dropdownLabel(el) {
+            const field = el.closest('.el-form-item, .form-group, [class*="form-item"]');
+            let txt = field ? field.innerText : '';
+            if (field) {
+              const label = field.querySelector('label, .el-form-item__label');
+              if (label) txt += ' ' + label.innerText;
             }
+            txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
+            return norm(txt);
           }
+          const input = selectInputs.find(el =>
+            keywords.some(k => dropdownLabel(el).includes(k))
+          ) || selectInputs[fallbackIndex];
+          if (!input) return false;
+
+          input.scrollIntoView({block: 'center'});
+          input.click();
+          input.focus();
+          await delay(900);
+
+          let options = Array.from(document.querySelectorAll(
+            '.el-select-dropdown__item, [role="option"]'
+          )).filter(o => o.offsetParent !== null && !o.classList.contains('is-disabled'));
+          const target = norm(targetVal);
+          let bestOption = options.find(o => norm(o.innerText) === target) ||
+            options.find(o => norm(o.innerText).includes(target) || target.includes(norm(o.innerText)));
+
+          // Một số dropdown chỉ tải option sau khi nhập từ khóa.
+          if (!bestOption) {
+            const setter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(input, targetVal);
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            await delay(1200);
+            options = Array.from(document.querySelectorAll(
+              '.el-select-dropdown__item, [role="option"]'
+            )).filter(o => o.offsetParent !== null && !o.classList.contains('is-disabled'));
+            bestOption = options.find(o => norm(o.innerText) === target) ||
+              options.find(o => norm(o.innerText).includes(target) || target.includes(norm(o.innerText)));
+          }
+
+          if (!bestOption) {
+            input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+            return false;
+          }
+          bestOption.click();
+          await delay(700);
+          return true;
         }
 
         // 2. Fill Role (Vai trò)
-        await fillDropdown(['vai tro', 'role'], data.attendeeRole);
-        await delay(500);
+        await fillDropdown(['vai tro', 'role'], data.attendeeRole, 0);
+        await delay(700);
 
         // 3. Fill Hospital (Bệnh viện)
-        await fillDropdown(['benh vien', 'hospital'], data.hospital);
-        await delay(500);
+        await fillDropdown(['benh vien', 'hospital'], data.hospital, 1);
+        await delay(700);
 
         // 4. Fill Department (Phòng ban/Khoa)
-        await fillDropdown(['phong ban', 'khoa', 'department'], data.department);
-        await delay(500);
+        await fillDropdown(['phong ban', 'khoa', 'department'], data.department, 2);
+        await delay(700);
 
         // 5. Fill Title (Chức danh)
-        await fillDropdown(['chuc danh', 'title'], data.role);
-        await delay(300);
+        await fillDropdown(['chuc danh', 'title'], data.role, 3);
 
         // 6. Tick checkbox "Đồng ý"
         const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));

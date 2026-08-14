@@ -80,6 +80,22 @@ class _MainScreenState extends State<MainScreen> {
 
   List<Map<String, String>> _people = [];
   int _currentPersonIndex = 0;
+  Map<String, bool> _fillEnabled = {
+    'name': true,
+    'attendeeRole': true,
+    'hospital': true,
+    'department': true,
+    'role': true,
+    'agreement': true,
+  };
+  Map<String, int> _fillDelayMs = {
+    'name': 700,
+    'attendeeRole': 700,
+    'hospital': 1800,
+    'department': 700,
+    'role': 700,
+    'agreement': 700,
+  };
 
   @override
   void initState() {
@@ -112,6 +128,7 @@ class _MainScreenState extends State<MainScreen> {
     final token = await AppPreferences.getString('viotp_token');
     final lastUrl = await AppPreferences.getString('last_url');
     final peopleData = await AppPreferences.getString('people_data');
+    final fillSettings = await AppPreferences.getString('fill_settings');
     setState(() {
       _tokenController.text = token ?? 'de6faac93d8d4f3294070fe48a11224b';
       _urlController.text = lastUrl ?? '';
@@ -125,6 +142,15 @@ class _MainScreenState extends State<MainScreen> {
       } else {
         _people = [];
       }
+      if (fillSettings != null && fillSettings.isNotEmpty) {
+        try {
+          final decoded = Map<String, dynamic>.from(jsonDecode(fillSettings));
+          _fillEnabled.addAll(Map<String, dynamic>.from(decoded['enabled'] ?? {})
+              .map((key, value) => MapEntry(key, value == true)));
+          _fillDelayMs.addAll(Map<String, dynamic>.from(decoded['delays'] ?? {})
+              .map((key, value) => MapEntry(key, (value as num).toInt().clamp(0, 10000).toInt())));
+        } catch (_) {}
+      }
     });
     if (_urlController.text.isNotEmpty) {
       _loadUrl();
@@ -136,6 +162,10 @@ class _MainScreenState extends State<MainScreen> {
     await AppPreferences.setString('last_url', _urlController.text);
     final peopleJson = jsonEncode(_people);
     await AppPreferences.setString('people_data', peopleJson);
+    await AppPreferences.setString('fill_settings', jsonEncode({
+      'enabled': _fillEnabled,
+      'delays': _fillDelayMs,
+    }));
   }
 
   void _loadUrl() {
@@ -336,36 +366,52 @@ class _MainScreenState extends State<MainScreen> {
         const data = $payload;
         const norm = (s) => (s || '').toString().toLowerCase()
           .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
-          .replace(/đ/g, 'd').replace(/\s+/g, ' ').trim();
+          .replace(/đ/g, 'd').replace(/\\s+/g, ' ').trim();
         const inputs = Array.from(document.querySelectorAll('input, textarea'));
         function labelOf(el) {
-          let txt = '';
+          let txt = (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
           if (el.id) {
             const label = document.querySelector('label[for="' + el.id + '"]');
-            if (label) txt += ' ' + label.innerText;
+            if (label) txt += ' ' + (label.innerText || '');
           }
-          let p = el;
-          for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
-            txt += ' ' + (p.innerText || '');
+          const field = el.closest('.el-form-item, .form-group, [class*="form-item"], [class*="input-group"]');
+          if (field) {
+            const label = field.querySelector('label, .el-form-item__label');
+            if (label) txt += ' ' + (label.innerText || '');
           }
-          txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
           return norm(txt);
         }
         function setVal(el, val) {
           if (!el || val == null || val === '') return false;
-          el.focus();
-          el.value = val;
+          const proto = el instanceof HTMLTextAreaElement
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, val);
           el.dispatchEvent(new Event('input', {bubbles: true}));
           el.dispatchEvent(new Event('change', {bubbles: true}));
           el.blur();
           return true;
         }
-        function fillBy(keys, val) {
-          const el = inputs.find(i => keys.some(k => labelOf(i).includes(k)));
+        function fillBy(keys, val, fallbackSelector, excludedKeys) {
+          let el = inputs.find(i => {
+            const label = labelOf(i);
+            return keys.some(k => label.includes(k)) &&
+              !(excludedKeys || []).some(k => label.includes(k));
+          });
+          if (!el && fallbackSelector) el = document.querySelector(fallbackSelector);
           return setVal(el, val);
         }
-        fillBy(['sdt', 'so dien thoai', 'dien thoai', 'phone'], data.phone);
-        fillBy(['ma', 'otp', 'code', 'xac thuc'], data.otp);
+        fillBy(
+          ['sdt', 'so dien thoai', 'dien thoai', 'phone', 'so dt', 'di dong', 'mobile'],
+          data.phone,
+          'input[type="tel"], input[name*="phone" i], input[name*="sdt" i]',
+          ['ma', 'otp', 'code', 'xac thuc']
+        );
+        fillBy(
+          ['ma otp', 'otp', 'verification code', 'ma xac thuc', 'code'],
+          data.otp,
+          'input[name*="otp" i], input[name*="code" i], input[autocomplete="one-time-code"]'
+        );
         fillBy(['ho va ten', 'ho ten', 'name'], data.name);
         fillBy(['benh vien', 'hospital'], data.hospital);
         fillBy(['phong ban', 'khoa', 'department'], data.department);
@@ -377,6 +423,33 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _fillPhoneInWeb() async {
     await _fillWebFields({'phone': _currentPhoneNumber});
+    await Future.delayed(const Duration(milliseconds: 500));
+    final clicked = await _webViewController.runJavaScriptReturningResult('''
+      (function() {
+        const norm = (s) => (s || '').toString().toLowerCase()
+          .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+          .replace(/đ/g, 'd').replace(/\\s+/g, ' ').trim();
+        const buttons = Array.from(document.querySelectorAll('button, a, input[type="button"]'));
+        const btn = buttons.find(b => {
+          const txt = norm(b.innerText || b.value || '');
+          return txt.includes('gui ma') || txt.includes('lay ma') ||
+            txt.includes('nhan ma') || txt.includes('send code');
+        });
+        if (!btn || btn.disabled) return false;
+        btn.click();
+        return true;
+      })();
+    ''');
+
+    if (!mounted) return;
+    if (clicked != true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Đã điền SĐT nhưng chưa tìm thấy nút Gửi mã!')));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Đã điền SĐT, bấm Gửi mã và tự động chờ OTP!')));
+    if (!_isGettingOtp) await _getOtp();
   }
 
   Future<void> _fillOtpInWeb() async {
@@ -388,16 +461,24 @@ class _MainScreenState extends State<MainScreen> {
     final p = _people[_currentPersonIndex];
     
     final payload = jsonEncode({
-      'name': p['name'] ?? '',
-      'department': p['department'] ?? '',
-      'role': p['role'] ?? '',
-      'attendeeRole': 'Nguoi tham du',
-      'hospital': 'BENH VIEN DA KHOA TINH QUANG NGAI',
+      'person': {
+        'name': p['name'] ?? '',
+        'department': p['department'] ?? '',
+        'role': p['role'] ?? '',
+        'attendeeRole': 'Nguoi tham du',
+        'hospital': 'BENH VIEN DA KHOA TINH QUANG NGAI',
+      },
+      'enabled': _fillEnabled,
+      'delays': _fillDelayMs,
     });
 
     await _webViewController.runJavaScript('''
       (async function() {
-        const data = $payload;
+        const settings = $payload;
+        const data = settings.person;
+        const enabled = settings.enabled;
+        const delays = settings.delays;
+        const stepDelay = key => Math.max(0, Math.min(10000, Number(delays[key]) || 0));
         const norm = (s) => (s || '').toString().toLowerCase()
           .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
           .replace(/đ/g, 'd').replace(/\\s+/g, ' ').trim();
@@ -419,26 +500,26 @@ class _MainScreenState extends State<MainScreen> {
         
         function setVal(el, val) {
           if (!el || val == null || val === '') return false;
-          el.focus();
           el.value = val;
           el.dispatchEvent(new Event('input', {bubbles: true}));
           el.dispatchEvent(new Event('change', {bubbles: true}));
-          el.blur();
           return true;
         }
 
         const delay = ms => new Promise(r => setTimeout(r, ms));
 
         // 1. Fill Name
-        const nameInput = inputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
-        if (nameInput) {
-           setVal(nameInput, data.name);
-           await delay(700);
+        if (enabled.name) {
+          const nameInput = inputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
+          if (nameInput) {
+            setVal(nameInput, data.name);
+            await delay(stepDelay('name'));
+          }
         }
 
         // Helper to fill Element UI dropdown. fallbackIndex follows the form order:
         // Vai trò, Bệnh viện, Phòng ban/Khoa, Chức danh.
-        async function fillDropdown(keywords, targetVal, fallbackIndex) {
+        async function fillDropdown(keywords, targetVal, fallbackIndex, waitMs) {
           if (!targetVal) return false;
 
           const selectInputs = Array.from(
@@ -459,10 +540,11 @@ class _MainScreenState extends State<MainScreen> {
           ) || selectInputs[fallbackIndex];
           if (!input) return false;
 
+          const wasReadOnly = input.readOnly;
+          input.readOnly = true;
           input.scrollIntoView({block: 'center'});
           input.click();
-          input.focus();
-          await delay(900);
+          await delay(waitMs);
 
           let options = Array.from(document.querySelectorAll(
             '.el-select-dropdown__item, [role="option"]'
@@ -471,14 +553,13 @@ class _MainScreenState extends State<MainScreen> {
           let bestOption = options.find(o => norm(o.innerText) === target) ||
             options.find(o => norm(o.innerText).includes(target) || target.includes(norm(o.innerText)));
 
-          // Một số dropdown chỉ tải option sau khi nhập từ khóa.
           if (!bestOption) {
             const setter = Object.getOwnPropertyDescriptor(
               window.HTMLInputElement.prototype, 'value'
             ).set;
             setter.call(input, targetVal);
             input.dispatchEvent(new Event('input', {bubbles: true}));
-            await delay(1200);
+            await delay(Math.max(1200, waitMs));
             options = Array.from(document.querySelectorAll(
               '.el-select-dropdown__item, [role="option"]'
             )).filter(o => o.offsetParent !== null && !o.classList.contains('is-disabled'));
@@ -488,40 +569,45 @@ class _MainScreenState extends State<MainScreen> {
 
           if (!bestOption) {
             input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+            input.blur();
+            input.readOnly = wasReadOnly;
             return false;
           }
           bestOption.click();
-          await delay(700);
+          await delay(waitMs);
+          input.blur();
+          input.readOnly = wasReadOnly;
           return true;
         }
 
-        // 2. Fill Role (Vai trò)
-        await fillDropdown(['vai tro', 'role'], data.attendeeRole, 0);
-        await delay(700);
+        if (enabled.attendeeRole) {
+          await fillDropdown(['vai tro', 'role'], data.attendeeRole, 0, stepDelay('attendeeRole'));
+        }
+        if (enabled.hospital) {
+          await fillDropdown(['benh vien', 'hospital'], data.hospital, 1, stepDelay('hospital'));
+        }
+        if (enabled.department) {
+          await fillDropdown(['phong ban', 'khoa', 'department'], data.department, 2, stepDelay('department'));
+        }
+        if (enabled.role) {
+          await fillDropdown(['chuc danh', 'title'], data.role, 3, stepDelay('role'));
+        }
 
-        // 3. Fill Hospital (Bệnh viện)
-        await fillDropdown(['benh vien', 'hospital'], data.hospital, 1);
-        await delay(700);
-
-        // 4. Fill Department (Phòng ban/Khoa)
-        await fillDropdown(['phong ban', 'khoa', 'department'], data.department, 2);
-        await delay(700);
-
-        // 5. Fill Title (Chức danh)
-        await fillDropdown(['chuc danh', 'title'], data.role, 3);
-
-        // 6. Tick checkbox "Đồng ý"
-        const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
-        const agreeCheckbox = checkboxes.find(c => {
-           let pNode = c.parentElement;
-           let txt = '';
-           for(let i=0; i<3 && pNode; i++, pNode = pNode.parentElement) {
-              txt += ' ' + (pNode.innerText || '');
-           }
-           return norm(txt).includes('dong y') || norm(txt).includes('chap nhan');
-        });
-        if (agreeCheckbox && !agreeCheckbox.checked) {
-           agreeCheckbox.click();
+        // Tick checkbox "Đồng ý"
+        if (enabled.agreement) {
+          const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+          const agreeCheckbox = checkboxes.find(c => {
+             let pNode = c.parentElement;
+             let txt = '';
+             for(let i=0; i<3 && pNode; i++, pNode = pNode.parentElement) {
+                txt += ' ' + (pNode.innerText || '');
+             }
+             return norm(txt).includes('dong y') || norm(txt).includes('chap nhan');
+          });
+          if (agreeCheckbox && !agreeCheckbox.checked) {
+             agreeCheckbox.click();
+             await delay(stepDelay('agreement'));
+          }
         }
 
       })();
@@ -840,7 +926,7 @@ class _MainScreenState extends State<MainScreen> {
                   tooltip: 'Điền số',
                   visualDensity: VisualDensity.compact,
                   iconSize: 18,
-                  icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
+                  icon: const Icon(Icons.content_paste_go_rounded),
                   onPressed:
                       _currentPhoneNumber.isEmpty ? null : _fillPhoneInWeb,
                 ),
@@ -879,7 +965,7 @@ class _MainScreenState extends State<MainScreen> {
                   tooltip: 'Điền OTP',
                   visualDensity: VisualDensity.compact,
                   iconSize: 18,
-                  icon: const Icon(Icons.keyboard_double_arrow_up_rounded),
+                  icon: const Icon(Icons.content_paste_go_rounded),
                   onPressed: _currentOtp.isEmpty ? null : _fillOtpInWeb,
                 ),
               ],
@@ -1058,18 +1144,22 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showSettingsDialog() async {
-    final result = await showDialog<List<Map<String, String>>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       barrierDismissible: false,
       builder: (context) => PeopleEditorDialog(
         initialPeople: _people,
         tokenController: _tokenController,
+        initialEnabled: _fillEnabled,
+        initialDelays: _fillDelayMs,
       ),
     );
-    
+
     if (result != null) {
       setState(() {
-        _people = result;
+        _people = List<Map<String, String>>.from(result['people']);
+        _fillEnabled = Map<String, bool>.from(result['enabled']);
+        _fillDelayMs = Map<String, int>.from(result['delays']);
         if (_currentPersonIndex >= _people.length) {
           _currentPersonIndex = 0;
         }
@@ -1127,11 +1217,15 @@ const List<String> kTitles = [
 class PeopleEditorDialog extends StatefulWidget {
   final List<Map<String, String>> initialPeople;
   final TextEditingController tokenController;
+  final Map<String, bool> initialEnabled;
+  final Map<String, int> initialDelays;
 
   const PeopleEditorDialog({
     super.key,
     required this.initialPeople,
     required this.tokenController,
+    required this.initialEnabled,
+    required this.initialDelays,
   });
 
   @override
@@ -1140,12 +1234,25 @@ class PeopleEditorDialog extends StatefulWidget {
 
 class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
   late List<Map<String, String>> _people;
+  late Map<String, bool> _enabled;
+  late Map<String, int> _delays;
   final TextEditingController _pasteController = TextEditingController();
+
+  static const _fieldLabels = {
+    'name': 'Họ và tên',
+    'attendeeRole': 'Vai trò người tham dự',
+    'hospital': 'Bệnh viện / Tỉnh',
+    'department': 'Phòng ban / Khoa',
+    'role': 'Chức danh',
+    'agreement': 'Checkbox Đồng ý',
+  };
 
   @override
   void initState() {
     super.initState();
     _people = List.from(widget.initialPeople.map((e) => Map<String, String>.from(e)));
+    _enabled = Map<String, bool>.from(widget.initialEnabled);
+    _delays = Map<String, int>.from(widget.initialDelays);
   }
 
   void _parsePastedData() {
@@ -1260,6 +1367,51 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
               ),
             ),
             const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  title: const Text('Cấu hình tự điền', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                  children: [
+                    ..._fieldLabels.entries.map((entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        children: [
+                          Switch(
+                            value: _enabled[entry.key] ?? true,
+                            onChanged: (value) => setState(() => _enabled[entry.key] = value),
+                          ),
+                          Expanded(child: Text(entry.value, style: const TextStyle(fontSize: 12))),
+                          SizedBox(
+                            width: 82,
+                            child: TextFormField(
+                              key: ValueKey('delay_${entry.key}'),
+                              initialValue: '${_delays[entry.key] ?? 700}',
+                              enabled: _enabled[entry.key] ?? true,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                suffixText: 'ms',
+                              ),
+                              onChanged: (value) => _delays[entry.key] =
+                                  (int.tryParse(value) ?? 0).clamp(0, 10000).toInt(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1364,7 +1516,11 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
                 const SizedBox(width: 10),
                 FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, _people),
+                  onPressed: () => Navigator.pop(context, {
+                    'people': _people,
+                    'enabled': _enabled,
+                    'delays': _delays,
+                  }),
                   icon: const Icon(Icons.save_rounded),
                   label: const Text('Lưu Thay Đổi'),
                 )

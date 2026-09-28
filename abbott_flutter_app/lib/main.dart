@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -79,6 +80,9 @@ class _MainScreenState extends State<MainScreen> {
   bool _isGettingPhone = false;
   bool _isGettingOtp = false;
 
+  Timer? _otpTimer;
+  int _otpTimeoutSeconds = 60;
+
   int? _abbottServiceId;
   String _currentPhoneNumber = '';
   String _currentRequestId = '';
@@ -134,6 +138,32 @@ class _MainScreenState extends State<MainScreen> {
     _loadPreferences();
   }
 
+  @override
+  void dispose() {
+    _cancelOtpTimer();
+    _urlController.dispose();
+    _tokenController.dispose();
+    super.dispose();
+  }
+
+  void _cancelOtpTimer() {
+    _otpTimer?.cancel();
+    _otpTimer = null;
+  }
+
+  void _cancelOtpWaiting() {
+    _cancelOtpTimer();
+    if (mounted) {
+      setState(() {
+        _isGettingOtp = false;
+        _otpStatusText = 'Đã dừng chờ';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã dừng chờ OTP.')),
+      );
+    }
+  }
+
   Future<void> _loadPreferences() async {
     final token = await AppPreferences.getString('viotp_token');
     final lastUrl = await AppPreferences.getString('last_url');
@@ -141,10 +171,15 @@ class _MainScreenState extends State<MainScreen> {
     final fillSettings = await AppPreferences.getString('fill_settings');
     final hospitalsData = await AppPreferences.getString('hospital_list');
     final defaultHospital = await AppPreferences.getString('default_hospital');
+    final otpTimeoutStr = await AppPreferences.getString('otp_timeout_seconds');
 
     setState(() {
       _tokenController.text = token ?? 'de6faac93d8d4f3294070fe48a11224b';
       _urlController.text = lastUrl ?? '';
+
+      if (otpTimeoutStr != null && otpTimeoutStr.isNotEmpty) {
+        _otpTimeoutSeconds = int.tryParse(otpTimeoutStr) ?? 60;
+      }
 
       if (hospitalsData != null && hospitalsData.isNotEmpty) {
         try {
@@ -213,6 +248,8 @@ class _MainScreenState extends State<MainScreen> {
     await AppPreferences.setString('last_url', _urlController.text);
     await AppPreferences.setString('hospital_list', jsonEncode(_hospitals));
     await AppPreferences.setString('default_hospital', _selectedHospital);
+    await AppPreferences.setString(
+        'otp_timeout_seconds', _otpTimeoutSeconds.toString());
     final peopleJson = jsonEncode(_people);
     await AppPreferences.setString('people_data', peopleJson);
     await AppPreferences.setString(
@@ -301,11 +338,15 @@ class _MainScreenState extends State<MainScreen> {
       if (_abbottServiceId == null) return;
     }
 
+    _cancelOtpTimer();
+
     setState(() {
       _isGettingPhone = true;
       _currentPhoneNumber = '';
       _currentRequestId = '';
       _currentOtp = '';
+      _isGettingOtp = false;
+      _otpStatusText = '';
     });
 
     try {
@@ -348,65 +389,124 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
+    _cancelOtpTimer();
+
+    final expireAt =
+        DateTime.now().add(Duration(seconds: _otpTimeoutSeconds));
+
     setState(() {
       _isGettingOtp = true;
       _currentOtp = '';
-      _otpStatusText = 'Đang chờ OTP 60s...';
+      _otpStatusText = 'Đang chờ OTP... ${_otpTimeoutSeconds}s';
     });
 
+    // 1. Timer chạy trên UI isolate: đếm đúng từng giây theo DateTime thật
+    _otpTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final remaining = expireAt.difference(DateTime.now()).inSeconds;
+      if (remaining <= 0) {
+        timer.cancel();
+        if (_isGettingOtp) {
+          setState(() {
+            _isGettingOtp = false;
+            _otpStatusText = 'Hết thời gian chờ OTP';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'Không lấy được mã OTP sau $_otpTimeoutSeconds giây.')));
+        }
+      } else {
+        setState(() {
+          _otpStatusText = 'Đang chờ OTP... còn ${remaining}s';
+        });
+      }
+    });
+
+    // 2. Polling ViOTP chạy song song, không làm chậm hay sai lệch bộ đếm giây
     try {
       final token = _tokenController.text.trim();
-      for (var second = 0; second < 60; second++) {
-        if (!mounted) return;
-        setState(() {
-          _otpStatusText = 'Đang chờ OTP... còn ${60 - second}s';
-        });
+      while (_isGettingOtp && DateTime.now().isBefore(expireAt)) {
+        if (!mounted) break;
 
         final url = Uri.parse(
             'https://api.viotp.com/session/getv2?requestId=$_currentRequestId&token=$token');
-        final response = await http.get(url);
-        final json = jsonDecode(response.body);
 
-        if (json['status_code'] == 200) {
-          final status = json['data']['Status'];
-          if (status == 1) {
-            final otp = json['data']['Code'].toString();
-            setState(() {
-              _currentOtp = otp;
-              _otpStatusText = 'Đã có OTP';
-            });
-            Clipboard.setData(ClipboardData(text: otp));
-            await _fillOtpInWeb();
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Đã nhận, copy và điền OTP!')));
+        try {
+          final response =
+              await http.get(url).timeout(const Duration(seconds: 4));
+          if (!mounted || !_isGettingOtp) break;
+
+          final json = jsonDecode(response.body);
+
+          if (json['status_code'] == 200) {
+            final status = json['data']['Status'];
+            if (status == 1) {
+              final otp = json['data']['Code'].toString();
+              _cancelOtpTimer();
+              if (mounted) {
+                setState(() {
+                  _isGettingOtp = false;
+                  _currentOtp = otp;
+                  _otpStatusText = 'Đã có OTP';
+                });
+                Clipboard.setData(ClipboardData(text: otp));
+                await _fillOtpInWeb();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Đã nhận, copy và điền OTP!')));
+              }
+              return;
+            }
+            if (status != 0) {
+              _cancelOtpTimer();
+              if (mounted) {
+                setState(() {
+                  _isGettingOtp = false;
+                  _otpStatusText = 'Phiên hết hạn/lỗi';
+                });
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Phiên ViOTP đã hết hạn hoặc lỗi!')));
+              }
+              return;
+            }
+          } else {
+            _cancelOtpTimer();
+            if (mounted) {
+              setState(() {
+                _isGettingOtp = false;
+                _otpStatusText = 'Lỗi API';
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Lỗi: ${json['message']}")));
+            }
             return;
           }
-          if (status != 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Phiên đã hết hạn hoặc lỗi!')));
-            return;
-          }
-        } else {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text("Lỗi: ${json['message']}")));
-          return;
+        } catch (e) {
+          // Bỏ qua lỗi timeout kết nối đơn lẻ trong lúc polling
+          debugPrint('Lỗi tạm thời khi poll OTP: $e');
         }
 
-        await Future.delayed(const Duration(seconds: 1));
+        // Chờ 1.5 giây giữa mỗi lần check ViOTP
+        await Future.delayed(const Duration(milliseconds: 1500));
       }
-
-      setState(() {
-        _otpStatusText = 'Không lấy được OTP sau 60s';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không lấy mã OTP được sau 60 giây.')));
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
-    } finally {
+      _cancelOtpTimer();
       if (mounted) {
         setState(() {
           _isGettingOtp = false;
+          _otpStatusText = 'Lỗi kết nối';
+        });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Lỗi kết nối: $e')));
+      }
+    } finally {
+      if (mounted && _isGettingOtp && DateTime.now().isAfter(expireAt)) {
+        _cancelOtpTimer();
+        setState(() {
+          _isGettingOtp = false;
+          _otpStatusText = 'Không lấy được OTP sau ${_otpTimeoutSeconds}s';
         });
       }
     }
@@ -999,10 +1099,12 @@ class _MainScreenState extends State<MainScreen> {
           Row(
             children: [
               FilledButton(
-                onPressed: _isGettingOtp ? null : _getOtp,
+                onPressed: _isGettingOtp ? _cancelOtpWaiting : _getOtp,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(58, 29),
                   padding: const EdgeInsets.symmetric(horizontal: 6),
+                  backgroundColor:
+                      _isGettingOtp ? Colors.orange.shade800 : null,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -1011,7 +1113,7 @@ class _MainScreenState extends State<MainScreen> {
                   children: [
                     _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
                     const SizedBox(width: 3),
-                    Text(_isGettingOtp ? 'Chờ' : 'OTP',
+                    Text(_isGettingOtp ? 'Dừng' : 'OTP',
                         style: const TextStyle(
                             fontSize: 11, fontWeight: FontWeight.bold)),
                   ],
@@ -1259,6 +1361,7 @@ class _MainScreenState extends State<MainScreen> {
         initialDelays: _fillDelayMs,
         initialHospitals: _hospitals,
         initialSelectedHospital: _selectedHospital,
+        initialOtpTimeout: _otpTimeoutSeconds,
       ),
     );
 
@@ -1272,6 +1375,9 @@ class _MainScreenState extends State<MainScreen> {
         }
         if (result['selectedHospital'] != null) {
           _selectedHospital = result['selectedHospital'];
+        }
+        if (result['otpTimeout'] != null) {
+          _otpTimeoutSeconds = result['otpTimeout'];
         }
         if (_currentPersonIndex >= _people.length) {
           _currentPersonIndex = 0;
@@ -1334,6 +1440,7 @@ class PeopleEditorDialog extends StatefulWidget {
   final Map<String, int> initialDelays;
   final List<String> initialHospitals;
   final String initialSelectedHospital;
+  final int initialOtpTimeout;
 
   const PeopleEditorDialog({
     super.key,
@@ -1343,6 +1450,7 @@ class PeopleEditorDialog extends StatefulWidget {
     required this.initialDelays,
     required this.initialHospitals,
     required this.initialSelectedHospital,
+    required this.initialOtpTimeout,
   });
 
   @override
@@ -1355,6 +1463,7 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
   late Map<String, int> _delays;
   late List<String> _hospitals;
   late String _selectedHospital;
+  late int _otpTimeout;
   final TextEditingController _pasteController = TextEditingController();
   final TextEditingController _newHospitalController = TextEditingController();
 
@@ -1375,6 +1484,7 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
     _enabled = Map<String, bool>.from(widget.initialEnabled);
     _delays = Map<String, int>.from(widget.initialDelays);
     _hospitals = List.from(widget.initialHospitals);
+    _otpTimeout = widget.initialOtpTimeout;
     if (_hospitals.isEmpty) {
       _hospitals = List.from(kDefaultHospitals);
     }
@@ -1741,6 +1851,25 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                 labelText: 'ViOTP Token',
                 isDense: true,
               ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<int>(
+              value: [60, 90, 120].contains(_otpTimeout) ? _otpTimeout : 60,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.timer_outlined, size: 20),
+                labelText: 'Thời gian chờ OTP (khớp web Abbott)',
+                isDense: true,
+              ),
+              items: const [
+                DropdownMenuItem(
+                    value: 60, child: Text('60 giây (Mặc định - Chuẩn Abbott)')),
+                DropdownMenuItem(value: 90, child: Text('90 giây')),
+                DropdownMenuItem(value: 120, child: Text('120 giây (2 phút)')),
+              ],
+              onChanged: (val) {
+                if (val != null) setState(() => _otpTimeout = val);
+              },
             ),
             const SizedBox(height: 10),
             // Profile & Quản lý Bệnh Viện
@@ -2160,6 +2289,7 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                     'delays': _delays,
                     'hospitals': _hospitals,
                     'selectedHospital': _selectedHospital,
+                    'otpTimeout': _otpTimeout,
                   }),
                   icon: const Icon(Icons.save_rounded),
                   label: const Text('Lưu Thay Đổi'),

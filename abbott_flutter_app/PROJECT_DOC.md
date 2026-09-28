@@ -198,9 +198,9 @@ Sau khi website Abbott gửi OTP về số đã thuê, ứng dụng cần gọi 
 Chức năng cần có:
 
 - Dùng request ID của số điện thoại đã thuê.
-- Poll API theo chu kỳ ngắn, ví dụ mỗi 1 giây.
-- Có giới hạn thời gian chờ, ví dụ 60 giây.
-- Nếu có OTP, lưu OTP, copy OTP và điền vào form nếu tìm được field.
+- Cơ chế đếm ngược chính xác: Tách riêng bộ đếm thời gian thực (`Timer.periodic` theo `DateTime.now()`) với tiến trình polling API ViOTP, đảm bảo giây đếm ngược trên ứng dụng khớp 1:1 với đồng hồ đếm ngược trên website Abbott mà không bị lệch do độ trễ mạng (Network latency).
+- Cho phép cấu hình thời gian chờ OTP (60s mặc định, 90s, 120s) và cho phép bấm dừng chờ bất cứ lúc nào.
+- Nếu có OTP, lưu OTP, copy OTP và tự động điền vào form web.
 - Nếu hết thời gian, báo chưa nhận được OTP.
 - Nếu request hết hạn, báo rõ cho người dùng.
 

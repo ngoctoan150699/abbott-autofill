@@ -77,38 +77,41 @@ Các cấu hình cần có:
 | ViOTP token | Token dùng để gọi API thuê số và lấy OTP |
 | URL gần nhất | Link Abbott đã mở gần nhất |
 | Danh sách người tham dự | Dữ liệu đầu vào để app parse và xử lý |
-| Bệnh viện mặc định | Giá trị điền vào trường bệnh viện |
+| Profile danh sách Bệnh viện | Danh sách bệnh viện lưu trong bộ nhớ ứng dụng |
+| Bệnh viện mặc định | Bệnh viện được chọn mặc định (mặc định ban đầu là Bệnh viện Đa khoa) |
 | Vai trò mặc định | Giá trị điền vào trường vai trò/người tham dự |
 
 Các cấu hình này nên được lưu cục bộ trên thiết bị để lần sau mở app không cần nhập lại.
 
-### 3.4. Quản lý danh sách người tham dự
+### 3.4. Quản lý danh sách người tham dự và Profile Bệnh viện
 
-Ứng dụng cần cho phép người dùng nhập danh sách người tham dự dạng text.
-
-Mỗi người nằm trên một dòng.
+Ứng dụng cho phép người dùng quản lý Profile Bệnh viện và nhập danh sách người tham dự:
+- Quản lý danh sách Bệnh viện (thêm, xóa, dán danh sách nhiều bệnh viện cùng lúc).
+- Chọn Bệnh viện chung / mặc định và có nút 1-click gán bệnh viện đã chọn cho toàn bộ người trong danh sách.
+- Nhập danh sách người tham dự dạng text. Mỗi người nằm trên một dòng.
 
 Định dạng dữ liệu chuẩn:
 
 ```text
-Họ tên - Khoa/Phòng ban - Chức danh
+Họ tên - Khoa/Phòng ban - Chức danh [- Bệnh viện]
 ```
 
 Ví dụ:
 
 ```text
 Nguyễn Văn A - Khoa Ngoại Tổng Hợp - Bác Sĩ Điều Trị
-Trần Thị B - Khoa Gây Mê Hồi Sức - Điều Dưỡng
+Trần Thị B - Khoa Gây Mê Hồi Sức - Điều Dưỡng - Bệnh Viện Sản Nhi Tỉnh Quảng Ngãi
 Lê Văn C - Ngoại Thần Kinh - Điều Dưỡng Trưởng
 ```
 
-Sau khi nhập, ứng dụng cần parse danh sách này thành các người tham dự riêng biệt.
+Sau khi nhập, ứng dụng cần parse danh sách này thành các người tham dự riêng biệt. Nếu không chỉ định Bệnh viện trong dòng, trường bệnh viện sẽ lấy tự động theo Bệnh viện mặc định đang chọn.
 
 Mỗi người tham dự cần có các trường:
 
 | Trường | Ý nghĩa |
 |---|---|
 | Họ tên | Tên đầy đủ của người tham dự |
+| Bệnh viện | Bệnh viện của người tham dự (có thể chọn riêng hoặc áp dụng chung) |
 | Khoa/Phòng ban gốc | Dữ liệu khoa/phòng ban ban đầu |
 | Khoa/Phòng ban chuẩn hóa | Dữ liệu đã xử lý để điền vào form |
 | Chức danh gốc | Dữ liệu chức danh ban đầu |

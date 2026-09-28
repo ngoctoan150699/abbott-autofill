@@ -988,28 +988,132 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _miniChip(IconData icon, String text, Color color) {
-    return Expanded(
-      child: Container(
-        height: 20,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
+  Widget _infoTag(IconData icon, String text, Color color) {
+    return Container(
+      height: 22,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.32)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPersonSelectionSheet() {
+    if (_people.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF101827),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 10, color: color),
-            const SizedBox(width: 3),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white.withOpacity(0.85),
-                ),
-                overflow: TextOverflow.ellipsis,
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 4),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Danh sách người tham gia (${_people.length})',
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Đang chọn: #${_currentPersonIndex + 1}',
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFF5EEAD4)),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: _people.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, color: Colors.white10),
+                itemBuilder: (context, index) {
+                  final p = _people[index];
+                  final isSelected = index == _currentPersonIndex;
+                  final hosp = (p['hospital'] ?? '').trim().isNotEmpty
+                      ? p['hospital']!.trim()
+                      : _selectedHospital;
+
+                  return ListTile(
+                    dense: true,
+                    selected: isSelected,
+                    selectedTileColor:
+                        const Color(0xFF5EEAD4).withOpacity(0.12),
+                    leading: CircleAvatar(
+                      radius: 12,
+                      backgroundColor: isSelected
+                          ? const Color(0xFF5EEAD4)
+                          : Colors.white.withOpacity(0.1),
+                      foregroundColor:
+                          isSelected ? const Color(0xFF06211D) : Colors.white70,
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    title: Text(
+                      p['name'] ?? '',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.w600,
+                        color:
+                            isSelected ? const Color(0xFF5EEAD4) : Colors.white,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${p['role'] ?? 'Chức danh'} • ${p['department'] ?? 'Khoa'}\n$hosp',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white.withOpacity(0.65),
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check_circle_rounded,
+                            color: Color(0xFF5EEAD4), size: 18)
+                        : null,
+                    onTap: () {
+                      setState(() => _currentPersonIndex = index);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                },
               ),
             ),
           ],
@@ -1033,7 +1137,6 @@ class _MainScreenState extends State<MainScreen> {
 
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 4, 10, 6),
-      constraints: const BoxConstraints(maxHeight: 185),
       padding: const EdgeInsets.all(7),
       decoration: _glassDecoration(radius: 18),
       child: Column(
@@ -1232,102 +1335,139 @@ class _MainScreenState extends State<MainScreen> {
           ),
           const SizedBox(height: 4),
           // 4. Thẻ người hiện tại (2 dòng cực kỳ gọn gàng)
+          // 4. Thẻ người hiện tại (Hiển thị trọn vẹn Tên, Chức vụ, Khoa phòng)
           if (hasPerson)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF5EEAD4).withOpacity(0.14),
-                    const Color(0xFFF0ABFC).withOpacity(0.08),
-                  ],
-                ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _showPersonSelectionSheet,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white.withOpacity(0.10)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF5EEAD4).withOpacity(0.14),
+                        const Color(0xFFF0ABFC).withOpacity(0.08),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withOpacity(0.12)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(
-                        radius: 9,
-                        backgroundColor: const Color(0xFF5EEAD4),
-                        foregroundColor: const Color(0xFF06211D),
-                        child: Text(
-                          '${_currentPersonIndex + 1}',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w900, fontSize: 9),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF5EEAD4),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '#${_currentPersonIndex + 1}/${_people.length}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 9.5,
+                                color: Color(0xFF06211D),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              current?['name'] ?? '',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12.5,
+                                color: Colors.white,
+                                height: 1.15,
+                              ),
+                              maxLines: 2,
+                              softWrap: true,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton.filledTonal(
+                            tooltip: 'Điền người này vào Web',
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 15,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 28, minHeight: 26),
+                            style: IconButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6)),
+                            ),
+                            icon: const Icon(Icons.auto_fix_high_rounded),
+                            onPressed: _fillCurrentPersonInWeb,
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton.filled(
+                            tooltip: 'Người tiếp theo',
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 15,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 28, minHeight: 26),
+                            style: IconButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6)),
+                            ),
+                            icon: const Icon(Icons.navigate_next_rounded),
+                            onPressed: () {
+                              setState(() {
+                                _currentPersonIndex =
+                                    _currentPersonIndex < _people.length - 1
+                                        ? _currentPersonIndex + 1
+                                        : 0;
+                              });
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          current?['name'] ?? '',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w900, fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 3),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _infoTag(
+                              Icons.badge_outlined,
+                              current?['role'] ?? 'Chức vụ',
+                              const Color(0xFFF0ABFC),
+                            ),
+                            const SizedBox(width: 4),
+                            _infoTag(
+                              Icons.domain_rounded,
+                              current?['department'] ?? 'Khoa',
+                              const Color(0xFF5EEAD4),
+                            ),
+                            if ((current?['hospital'] ?? '')
+                                    .trim()
+                                    .isNotEmpty &&
+                                current?['hospital'] != _selectedHospital) ...[
+                              const SizedBox(width: 4),
+                              _infoTag(
+                                Icons.local_hospital_rounded,
+                                current!['hospital']!,
+                                const Color(0xFF93C5FD),
+                              ),
+                            ],
+                            const SizedBox(width: 4),
+                            Icon(Icons.touch_app_outlined,
+                                size: 11,
+                                color: Colors.white.withOpacity(0.35)),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      IconButton.filledTonal(
-                        tooltip: 'Điền người này vào Web',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 15,
-                        padding: EdgeInsets.zero,
-                        constraints:
-                            const BoxConstraints(minWidth: 28, minHeight: 26),
-                        style: IconButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
-                        ),
-                        icon: const Icon(Icons.auto_fix_high_rounded),
-                        onPressed: _fillCurrentPersonInWeb,
-                      ),
-                      const SizedBox(width: 4),
-                      IconButton.filled(
-                        tooltip: 'Người tiếp theo',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 15,
-                        padding: EdgeInsets.zero,
-                        constraints:
-                            const BoxConstraints(minWidth: 28, minHeight: 26),
-                        style: IconButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
-                        ),
-                        icon: const Icon(Icons.navigate_next_rounded),
-                        onPressed: () {
-                          setState(() {
-                            _currentPersonIndex =
-                                _currentPersonIndex < _people.length - 1
-                                    ? _currentPersonIndex + 1
-                                    : 0;
-                          });
-                        },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      _miniChip(
-                          Icons.badge_outlined,
-                          current?['role'] ?? 'Chức vụ',
-                          const Color(0xFFF0ABFC)),
-                      const SizedBox(width: 4),
-                      _miniChip(
-                          Icons.domain_rounded,
-                          current?['department'] ?? 'Khoa',
-                          const Color(0xFF5EEAD4)),
-                      const SizedBox(width: 4),
-                      _miniChip(
-                          Icons.local_hospital_rounded,
-                          current?['hospital'] ?? _selectedHospital,
-                          const Color(0xFF93C5FD)),
-                    ],
-                  ),
-                ],
+                ),
               ),
             )
           else

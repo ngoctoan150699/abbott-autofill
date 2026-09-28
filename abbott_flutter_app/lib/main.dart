@@ -1965,479 +1965,692 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
       backgroundColor: const Color(0xFF101827),
       surfaceTintColor: const Color(0xFF5EEAD4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.all(12),
-      child: Container(
-        width: double.maxFinite,
-        height: 720,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.tune_rounded, color: Color(0xFF5EEAD4)),
-                const SizedBox(width: 10),
-                const Expanded(
-                    child: Text('Quản lý Dữ liệu Điền Tự động',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: widget.tokenController,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.vpn_key_rounded),
-                labelText: 'ViOTP Token',
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<int>(
-              value: [60, 90, 120].contains(_otpTimeout) ? _otpTimeout : 60,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.timer_outlined, size: 20),
-                labelText: 'Thời gian chờ OTP (khớp web Abbott)',
-                isDense: true,
-              ),
-              items: const [
-                DropdownMenuItem(
-                    value: 60, child: Text('60 giây (Mặc định - Chuẩn Abbott)')),
-                DropdownMenuItem(value: 90, child: Text('90 giây')),
-                DropdownMenuItem(value: 120, child: Text('120 giây (2 phút)')),
-              ],
-              onChanged: (val) {
-                if (val != null) setState(() => _otpTimeout = val);
-              },
-            ),
-            const SizedBox(height: 10),
-            // Profile & Quản lý Bệnh Viện
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: Theme(
-                data: Theme.of(context)
-                    .copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  leading: const Icon(Icons.local_hospital_rounded,
-                      color: Color(0xFF5EEAD4), size: 20),
-                  title: const Text('Bệnh Viện & Profile Bệnh Viện',
+      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      child: DefaultTabController(
+        length: 3,
+        child: Container(
+          width: double.maxFinite,
+          height: 720,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Row(
+                children: [
+                  const Icon(Icons.tune_rounded,
+                      color: Color(0xFF5EEAD4), size: 22),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Quản lý Cài đặt & Dữ liệu',
                       style:
-                          TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-                  subtitle: Text(
-                    'Đang chọn: $_selectedHospital',
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.white.withOpacity(0.6)),
-                    overflow: TextOverflow.ellipsis,
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _hospitals.contains(_selectedHospital)
-                                ? _selectedHospital
-                                : _hospitals.first,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Bệnh viện mặc định / chung',
-                              isDense: true,
-                            ),
-                            items: _hospitals
-                                .map((h) => DropdownMenuItem(
-                                      value: h,
-                                      child: Text(h,
-                                          style: const TextStyle(fontSize: 12),
-                                          overflow: TextOverflow.ellipsis),
-                                    ))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() => _selectedHospital = val);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: _people.isEmpty
-                                ? null
-                                : () => _applyHospitalToAll(_selectedHospital),
-                            icon: const Icon(Icons.done_all_rounded, size: 16),
-                            label: const Text(
-                              'Gán BV này cho TẤT CẢ người trong DS',
-                              style: TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Divider(color: Colors.white12, height: 1),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Text(
-                          'Danh sách Profile BV lưu trong app:',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF5EEAD4)),
-                        ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: _showBulkAddHospitalDialog,
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          icon:
-                              const Icon(Icons.playlist_add_rounded, size: 14),
-                          label: const Text('Nhập nhiều',
-                              style: TextStyle(fontSize: 11)),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 110),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.08)),
-                      ),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        itemCount: _hospitals.length,
-                        separatorBuilder: (_, __) =>
-                            const Divider(height: 1, color: Colors.white10),
-                        itemBuilder: (context, idx) {
-                          final h = _hospitals[idx];
-                          final isSel = h == _selectedHospital;
-                          return ListTile(
-                            dense: true,
-                            visualDensity: VisualDensity.compact,
-                            contentPadding:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                            leading: Icon(
-                              isSel
-                                  ? Icons.radio_button_checked_rounded
-                                  : Icons.radio_button_off_rounded,
-                              size: 16,
-                              color: isSel
-                                  ? const Color(0xFF5EEAD4)
-                                  : Colors.white38,
-                            ),
-                            title: Text(
-                              h,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight:
-                                    isSel ? FontWeight.bold : FontWeight.normal,
-                                color: isSel
-                                    ? const Color(0xFF5EEAD4)
-                                    : Colors.white,
-                              ),
-                            ),
-                            trailing: _hospitals.length > 1
-                                ? IconButton(
-                                    icon: const Icon(Icons.close_rounded,
-                                        size: 14, color: Colors.white38),
-                                    onPressed: () => _removeHospital(h),
-                                  )
-                                : null,
-                            onTap: () {
-                              setState(() => _selectedHospital = h);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _newHospitalController,
-                            style: const TextStyle(fontSize: 12),
-                            decoration: const InputDecoration(
-                              labelText: 'Thêm BV vào Profile',
-                              hintText: 'Nhập tên BV...',
-                              isDense: true,
-                            ),
-                            onSubmitted: _addHospital,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        FilledButton(
-                          onPressed: () =>
-                              _addHospital(_newHospitalController.text),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(54, 40),
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                          ),
-                          child: const Text('Thêm'),
-                        ),
-                      ],
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        size: 20, color: Colors.white60),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // TabBar chia 3 tab rõ ràng, không bị chiếm chỗ
+              Container(
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: TabBar(
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicator: BoxDecoration(
+                    color: const Color(0xFF5EEAD4),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  labelColor: const Color(0xFF06211D),
+                  unselectedLabelColor: Colors.white70,
+                  labelStyle:
+                      const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  unselectedLabelStyle: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w600),
+                  tabs: [
+                    Tab(text: 'DS Người (${_people.length})'),
+                    const Tab(text: 'Bệnh Viện'),
+                    const Tab(text: 'Cấu Hình'),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            // Cấu hình tự điền
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: Theme(
-                data: Theme.of(context)
-                    .copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  title: const Text('Cấu hình tự điền',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-                  childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+              const SizedBox(height: 10),
+              // TabBarView
+              Expanded(
+                child: TabBarView(
                   children: [
-                    ..._fieldLabels.entries.map((entry) => Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: Row(
+                    // TAB 1: DANH SÁCH NGƯỜI (TỐI ƯU TOÀN DIỆN DIỆN TÍCH)
+                    _buildPeopleTab(),
+
+                    // TAB 2: QUẢN LÝ BỆNH VIỆN & PROFILE
+                    _buildHospitalsTab(),
+
+                    // TAB 3: CẤU HÌNH VIOTP & TỰ ĐIỀN
+                    _buildConfigTab(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Footer
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Hủy'),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(context, {
+                      'people': _people,
+                      'enabled': _enabled,
+                      'delays': _delays,
+                      'hospitals': _hospitals,
+                      'selectedHospital': _selectedHospital,
+                      'otpTimeout': _otpTimeout,
+                    }),
+                    icon: const Icon(Icons.save_rounded, size: 18),
+                    label: const Text('Lưu Thay Đổi'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPeopleTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Khối dán danh sách compact
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _pasteController,
+                minLines: 1,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 12),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  prefixIcon: Icon(Icons.paste_rounded, size: 18),
+                  labelText: 'Dán danh sách NOIDUNGDIEN',
+                  hintText: 'VD: Họ tên - Khoa - Chức danh [- Bệnh viện]',
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _parsePastedData,
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      icon: const Icon(Icons.add_task_rounded, size: 16),
+                      label: const Text('Phân tích & Thêm vào DS',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  if (_people.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() => _people.clear());
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Đã xóa toàn bộ danh sách!')),
+                        );
+                      },
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: Colors.redAccent,
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: const Icon(Icons.delete_sweep_rounded, size: 16),
+                      label: const Text('Xóa hết',
+                          style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Danh sách người tham gia (Chiếm trọn vẹn toàn bộ diện tích còn lại)
+        Expanded(
+          child: _people.isEmpty
+              ? Container(
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.group_off_rounded,
+                          size: 40, color: Colors.white.withOpacity(0.3)),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Chưa có người nào trong danh sách',
+                        style: TextStyle(fontSize: 13, color: Colors.white70),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Dán nội dung vào ô trên và bấm "Phân tích & Thêm"',
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.white.withOpacity(0.4)),
+                      ),
+                    ],
+                  ),
+                )
+              : Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(6),
+                    itemCount: _people.length,
+                    itemBuilder: (context, index) {
+                      final p = _people[index];
+                      final currentHosp = (p['hospital'] != null &&
+                              _hospitals.contains(p['hospital']!.trim()))
+                          ? p['hospital']!.trim()
+                          : _selectedHospital;
+
+                      return Card(
+                        color: Colors.white.withOpacity(0.04),
+                        margin: const EdgeInsets.only(bottom: 6),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(
+                              color: Colors.white.withOpacity(0.07)),
+                        ),
+                        elevation: 0,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Switch(
-                                value: _enabled[entry.key] ?? true,
-                                onChanged: (value) =>
-                                    setState(() => _enabled[entry.key] = value),
-                              ),
-                              Expanded(
-                                  child: Text(entry.value,
-                                      style: const TextStyle(fontSize: 12))),
-                              SizedBox(
-                                width: 82,
-                                child: TextFormField(
-                                  key: ValueKey('delay_${entry.key}'),
-                                  initialValue: '${_delays[entry.key] ?? 700}',
-                                  enabled: _enabled[entry.key] ?? true,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly
-                                  ],
-                                  decoration: const InputDecoration(
-                                    isDense: true,
-                                    suffixText: 'ms',
+                              // Dòng 1: STT + Tên người + Xóa
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 10,
+                                    backgroundColor: const Color(0xFF5EEAD4),
+                                    foregroundColor: const Color(0xFF06211D),
+                                    child: Text('${index + 1}',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 9.5)),
                                   ),
-                                  onChanged: (value) => _delays[entry.key] =
-                                      (int.tryParse(value) ?? 0)
-                                          .clamp(0, 10000)
-                                          .toInt(),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue: p['name'],
+                                      onChanged: (val) => p['name'] = val,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold),
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        hintText: 'Họ và Tên...',
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 6),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline,
+                                        color: Colors.redAccent, size: 18),
+                                    onPressed: () =>
+                                        setState(() => _people.removeAt(index)),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                        minWidth: 28, minHeight: 28),
+                                  )
+                                ],
+                              ),
+                              const SizedBox(height: 5),
+                              // Dòng 2: Khoa + Chức Danh (Ngang nhau gọn gàng)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    flex: 5,
+                                    child: DropdownButtonFormField<String>(
+                                      value:
+                                          kDepartments.contains(p['department'])
+                                              ? p['department']
+                                              : kDepartments.first,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        labelText: 'Khoa',
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 6),
+                                      ),
+                                      style: const TextStyle(
+                                          fontSize: 11, color: Colors.white),
+                                      items: kDepartments
+                                          .map((d) => DropdownMenuItem(
+                                              value: d,
+                                              child: Text(d,
+                                                  style: const TextStyle(
+                                                      fontSize: 11),
+                                                  overflow:
+                                                      TextOverflow.ellipsis)))
+                                          .toList(),
+                                      onChanged: (val) => setState(
+                                          () => p['department'] = val!),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Expanded(
+                                    flex: 4,
+                                    child: DropdownButtonFormField<String>(
+                                      value: kTitles.contains(p['role'])
+                                          ? p['role']
+                                          : kTitles.first,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        labelText: 'Chức Danh',
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 6),
+                                      ),
+                                      style: const TextStyle(
+                                          fontSize: 11, color: Colors.white),
+                                      items: kTitles
+                                          .map((t) => DropdownMenuItem(
+                                              value: t,
+                                              child: Text(t,
+                                                  style: const TextStyle(
+                                                      fontSize: 11),
+                                                  overflow:
+                                                      TextOverflow.ellipsis)))
+                                          .toList(),
+                                      onChanged: (val) =>
+                                          setState(() => p['role'] = val!),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 5),
+                              // Dòng 3: Bệnh Viện
+                              DropdownButtonFormField<String>(
+                                value: currentHosp,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  labelText: 'Bệnh Viện',
+                                  prefixIcon: Icon(
+                                      Icons.local_hospital_outlined,
+                                      size: 14),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 6),
                                 ),
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.white),
+                                items: _hospitals
+                                    .map((h) => DropdownMenuItem(
+                                        value: h,
+                                        child: Text(h,
+                                            style:
+                                                const TextStyle(fontSize: 11),
+                                            overflow: TextOverflow.ellipsis)))
+                                    .toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => p['hospital'] = val);
+                                  }
+                                },
                               ),
                             ],
                           ),
-                        )),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _pasteController,
-                  minLines: 2,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    alignLabelWithHint: true,
-                    prefixIcon: Icon(Icons.paste_rounded),
-                    labelText: 'Dán danh sách NOIDUNGDIEN',
-                    hintText:
-                        'VD: Phạm Thị Thu Vân - gây mê hồi sức - bs [- bệnh viện]',
+                        ),
+                      );
+                    },
                   ),
                 ),
-                const SizedBox(height: 6),
-                FilledButton.icon(
-                  onPressed: _parsePastedData,
-                  icon: const Icon(Icons.add_task_rounded),
-                  label: const Text('Phân tích và Thêm'),
-                )
-              ],
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _people.length,
-                  itemBuilder: (context, index) {
-                    final p = _people[index];
-                    final currentHosp = (p['hospital'] != null &&
-                            _hospitals.contains(p['hospital']!.trim()))
-                        ? p['hospital']!.trim()
-                        : _selectedHospital;
+        ),
+      ],
+    );
+  }
 
-                    return Card(
-                      color: Colors.white.withOpacity(0.05),
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                              color: Colors.white.withOpacity(0.05))),
-                      elevation: 0,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 12,
-                                      backgroundColor: const Color(0xFF5EEAD4),
-                                      foregroundColor: const Color(0xFF06211D),
-                                      child: Text('${index + 1}',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 11)),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text('Thông tin người tham gia',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 13,
-                                            color: Colors.white70)),
-                                  ],
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: Colors.redAccent, size: 20),
-                                  onPressed: () =>
-                                      setState(() => _people.removeAt(index)),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                )
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: TextEditingController(text: p['name'])
-                                ..selection = TextSelection.collapsed(
-                                    offset: (p['name'] ?? '').length),
-                              onChanged: (val) => p['name'] = val,
-                              decoration: const InputDecoration(
-                                  isDense: true, labelText: 'Họ Tên'),
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: currentHosp,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                labelText: 'Bệnh Viện',
-                                prefixIcon: Icon(Icons.local_hospital_outlined,
-                                    size: 16),
-                              ),
-                              items: _hospitals
-                                  .map((h) => DropdownMenuItem(
-                                      value: h,
-                                      child: Text(h,
-                                          style: const TextStyle(fontSize: 12),
-                                          overflow: TextOverflow.ellipsis)))
-                                  .toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setState(() => p['hospital'] = val);
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: kDepartments.contains(p['department'])
-                                  ? p['department']
-                                  : kDepartments.first,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                  isDense: true, labelText: 'Khoa'),
-                              items: kDepartments
-                                  .map((d) => DropdownMenuItem(
-                                      value: d,
-                                      child: Text(d,
-                                          style:
-                                              const TextStyle(fontSize: 13))))
-                                  .toList(),
-                              onChanged: (val) =>
-                                  setState(() => p['department'] = val!),
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: kTitles.contains(p['role'])
-                                  ? p['role']
-                                  : kTitles.first,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                  isDense: true, labelText: 'Chức Danh'),
-                              items: kTitles
-                                  .map((t) => DropdownMenuItem(
-                                      value: t,
-                                      child: Text(t,
-                                          style:
-                                              const TextStyle(fontSize: 13))))
-                                  .toList(),
-                              onChanged: (val) =>
-                                  setState(() => p['role'] = val!),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
+  Widget _buildHospitalsTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Bệnh viện chung / mặc định',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF5EEAD4)),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _hospitals.contains(_selectedHospital)
+                      ? _selectedHospital
+                      : _hospitals.first,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Chọn Bệnh viện mặc định',
+                    isDense: true,
+                  ),
+                  items: _hospitals
+                      .map((h) => DropdownMenuItem(
+                            value: h,
+                            child: Text(h,
+                                style: const TextStyle(fontSize: 12),
+                                overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _selectedHospital = val);
+                    }
                   },
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Hủy')),
-                const SizedBox(width: 10),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, {
-                    'people': _people,
-                    'enabled': _enabled,
-                    'delays': _delays,
-                    'hospitals': _hospitals,
-                    'selectedHospital': _selectedHospital,
-                    'otpTimeout': _otpTimeout,
-                  }),
-                  icon: const Icon(Icons.save_rounded),
-                  label: const Text('Lưu Thay Đổi'),
-                )
+                const SizedBox(height: 10),
+                FilledButton.tonalIcon(
+                  onPressed: _people.isEmpty
+                      ? null
+                      : () => _applyHospitalToAll(_selectedHospital),
+                  icon: const Icon(Icons.done_all_rounded, size: 16),
+                  label: Text(
+                    'Gán BV này cho TẤT CẢ ${_people.length} người',
+                    style: const TextStyle(
+                        fontSize: 11.5, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ],
-            )
-          ],
-        ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Danh sách Profile Bệnh viện lưu trong app
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.bookmark_outline_rounded,
+                        size: 16, color: Color(0xFF5EEAD4)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Danh sách Bệnh viện trong Profile:',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _showBulkAddHospitalDialog,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.playlist_add_rounded, size: 15),
+                      label: const Text('Nhập nhiều',
+                          style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    itemCount: _hospitals.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, color: Colors.white10),
+                    itemBuilder: (context, idx) {
+                      final h = _hospitals[idx];
+                      final isSel = h == _selectedHospital;
+                      return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 8),
+                        leading: Icon(
+                          isSel
+                              ? Icons.radio_button_checked_rounded
+                              : Icons.radio_button_off_rounded,
+                          size: 16,
+                          color:
+                              isSel ? const Color(0xFF5EEAD4) : Colors.white38,
+                        ),
+                        title: Text(
+                          h,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight:
+                                isSel ? FontWeight.bold : FontWeight.normal,
+                            color:
+                                isSel ? const Color(0xFF5EEAD4) : Colors.white,
+                          ),
+                        ),
+                        trailing: _hospitals.length > 1
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded,
+                                    size: 15, color: Colors.white38),
+                                onPressed: () => _removeHospital(h),
+                              )
+                            : null,
+                        onTap: () {
+                          setState(() => _selectedHospital = h);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newHospitalController,
+                        style: const TextStyle(fontSize: 12),
+                        decoration: const InputDecoration(
+                          labelText: 'Thêm BV vào Profile',
+                          hintText: 'Nhập tên BV mới...',
+                          isDense: true,
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        ),
+                        onSubmitted: _addHospital,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () =>
+                          _addHospital(_newHospitalController.text),
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      child: const Text('Thêm'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfigTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Cấu hình ViOTP & Đồng bộ OTP',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF5EEAD4)),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: widget.tokenController,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.vpn_key_rounded),
+                    labelText: 'ViOTP Token',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<int>(
+                  value:
+                      [60, 90, 120].contains(_otpTimeout) ? _otpTimeout : 60,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.timer_outlined, size: 20),
+                    labelText: 'Thời gian chờ OTP (giây)',
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 60,
+                        child: Text('60 giây (Mặc định - Chuẩn Abbott)')),
+                    DropdownMenuItem(value: 90, child: Text('90 giây')),
+                    DropdownMenuItem(
+                        value: 120, child: Text('120 giây (2 phút)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _otpTimeout = val);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Cấu hình trường tự điền & Độ trễ',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF5EEAD4)),
+                ),
+                const SizedBox(height: 8),
+                ..._fieldLabels.entries.map((entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Switch(
+                            value: _enabled[entry.key] ?? true,
+                            onChanged: (value) =>
+                                setState(() => _enabled[entry.key] = value),
+                          ),
+                          Expanded(
+                              child: Text(entry.value,
+                                  style: const TextStyle(fontSize: 12))),
+                          SizedBox(
+                            width: 82,
+                            child: TextFormField(
+                              key: ValueKey('delay_${entry.key}'),
+                              initialValue: '${_delays[entry.key] ?? 700}',
+                              enabled: _enabled[entry.key] ?? true,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly
+                              ],
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                suffixText: 'ms',
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                              ),
+                              onChanged: (value) => _delays[entry.key] =
+                                  (int.tryParse(value) ?? 0)
+                                      .clamp(0, 10000)
+                                      .toInt(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

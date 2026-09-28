@@ -771,35 +771,46 @@ class _MainScreenState extends State<MainScreen> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+                padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
                 child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: _glassDecoration(radius: 18),
+                  height: 38,
+                  padding: const EdgeInsets.fromLTRB(10, 2, 4, 2),
+                  decoration: _glassDecoration(radius: 14),
                   child: Row(
                     children: [
+                      const Icon(Icons.link_rounded,
+                          size: 16, color: Color(0xFF5EEAD4)),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: SizedBox(
-                          height: 42,
-                          child: TextField(
-                            controller: _urlController,
-                            style: const TextStyle(fontSize: 13),
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              prefixIcon: Icon(Icons.link_rounded, size: 18),
-                              hintText: 'Dán link Abbott...',
-                            ),
-                            onSubmitted: (_) => _loadUrl(),
+                        child: TextField(
+                          controller: _urlController,
+                          style: const TextStyle(fontSize: 12),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            fillColor: Colors.transparent,
+                            filled: false,
+                            hintText: 'Dán link Abbott...',
+                            hintStyle:
+                                TextStyle(fontSize: 12, color: Colors.white38),
+                            contentPadding: EdgeInsets.zero,
                           ),
+                          onSubmitted: (_) => _loadUrl(),
                         ),
                       ),
-                      const SizedBox(width: 8),
                       FilledButton(
                         onPressed: _loadUrl,
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size(58, 42),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          minimumSize: const Size(46, 30),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text('Mở'),
+                        child: const Text('Mở',
+                            style: TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
@@ -809,7 +820,7 @@ class _MainScreenState extends State<MainScreen> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(20),
                     child: ColoredBox(
                       color: Colors.white,
                       child: WebViewWidget(controller: _webViewController),
@@ -840,88 +851,78 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _sectionTitle(IconData icon, String title, String subtitle) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF5EEAD4).withOpacity(0.16),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: const Color(0xFF5EEAD4), size: 18),
+  Widget _valuePill(
+      String value, String hint, IconData icon, VoidCallback? onCopy) {
+    return InkWell(
+      onTap: onCopy,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 29,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.22),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withOpacity(0.10)),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800, fontSize: 15)),
-              Text(subtitle,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.58), fontSize: 11)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _valuePill(String value, String hint, IconData icon) {
-    return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white70, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value.isEmpty ? hint : value,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: value.isEmpty ? Colors.white38 : Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: .4,
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white70, size: 14),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                value.isEmpty ? hint : value,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: value.isEmpty ? Colors.white38 : Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  letterSpacing: .3,
+                ),
               ),
             ),
-          ),
-        ],
+            if (value.isNotEmpty)
+              const Icon(Icons.copy_rounded, size: 12, color: Colors.white38),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _miniAction({
-    required IconData icon,
-    required String label,
-    required VoidCallback? onPressed,
-    bool primary = false,
-  }) {
-    final child = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16),
-        const SizedBox(width: 6),
-        Text(label),
-      ],
+  Widget _miniChip(IconData icon, String text, Color color) {
+    return Expanded(
+      child: Container(
+        height: 20,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 10, color: color),
+            const SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withOpacity(0.85),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    return primary
-        ? FilledButton.tonal(onPressed: onPressed, child: child)
-        : OutlinedButton(onPressed: onPressed, child: child);
   }
 
   Widget _loadingIcon(bool loading, IconData icon) {
-    if (!loading) return Icon(icon, size: 18);
+    if (!loading) return Icon(icon, size: 15);
     return const SizedBox(
-      width: 16,
-      height: 16,
+      width: 14,
+      height: 14,
       child: CircularProgressIndicator(strokeWidth: 2),
     );
   }
@@ -931,376 +932,318 @@ class _MainScreenState extends State<MainScreen> {
     final current = hasPerson ? _people[_currentPersonIndex] : null;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-      constraints: const BoxConstraints(maxHeight: 285),
-      padding: const EdgeInsets.all(8),
-      decoration: _glassDecoration(radius: 22),
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.sms_rounded,
-                    color: const Color(0xFF5EEAD4), size: 18),
-                const SizedBox(width: 6),
-                const Text('OTP',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
-                const Spacer(),
-                if (_otpStatusText.isNotEmpty)
-                  Flexible(
-                    child: Text(
-                      _otpStatusText,
-                      textAlign: TextAlign.right,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF93C5FD),
-                          fontWeight: FontWeight.w700),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: (_isGettingPhone || _isLoadingService)
-                      ? null
-                      : _getPhoneNumber,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(66, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    _loadingIcon(_isGettingPhone || _isLoadingService,
-                        Icons.phone_android_rounded),
-                    const SizedBox(width: 4),
-                    const Text('Số'),
-                  ]),
+      margin: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      constraints: const BoxConstraints(maxHeight: 185),
+      padding: const EdgeInsets.all(7),
+      decoration: _glassDecoration(radius: 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Hàng SĐT (Bấm vào SĐT là copy ngay)
+          Row(
+            children: [
+              FilledButton(
+                onPressed: (_isGettingPhone || _isLoadingService)
+                    ? null
+                    : _getPhoneNumber,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(58, 29),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                    child: _valuePill(
-                        _currentPhoneNumber, 'SĐT', Icons.call_rounded)),
-                IconButton.filledTonal(
-                  tooltip: 'Copy số',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: const Icon(Icons.copy_rounded),
-                  onPressed: _currentPhoneNumber.isEmpty
-                      ? null
-                      : () => _copy(_currentPhoneNumber, 'Số điện thoại'),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Điền số',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: const Icon(Icons.content_paste_go_rounded),
-                  onPressed:
-                      _currentPhoneNumber.isEmpty ? null : _fillPhoneInWeb,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                FilledButton(
-                  onPressed: _isGettingOtp ? null : _getOtp,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(66, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
-                    const SizedBox(width: 4),
-                    Text(_isGettingOtp ? 'Chờ' : 'OTP'),
-                  ]),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                    child: _valuePill(
-                        _currentOtp, 'Mã OTP', Icons.password_rounded)),
-                IconButton.filledTonal(
-                  tooltip: 'Copy OTP',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: const Icon(Icons.copy_rounded),
-                  onPressed: _currentOtp.isEmpty
-                      ? null
-                      : () => _copy(_currentOtp, 'OTP'),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Điền OTP',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: const Icon(Icons.content_paste_go_rounded),
-                  onPressed: _currentOtp.isEmpty ? null : _fillOtpInWeb,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 32,
-                    child: FilledButton.icon(
-                      onPressed: _submitFormInWeb,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFF0ABFC),
-                        foregroundColor: const Color(0xFF1E0824),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: EdgeInsets.zero,
-                      ),
-                      icon: const Icon(Icons.send_rounded, size: 14),
-                      label: const Text(
-                        'Gửi Form Đăng Ký (Web)',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                            letterSpacing: .3),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            // Thanh chọn Bệnh Viện & Nút áp dụng cho tất cả
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 32,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _hospitals.contains(_selectedHospital)
-                            ? _selectedHospital
-                            : (_hospitals.isNotEmpty ? _hospitals.first : null),
-                        isExpanded: true,
-                        icon: const Icon(Icons.arrow_drop_down,
-                            size: 18, color: Color(0xFF5EEAD4)),
-                        dropdownColor: const Color(0xFF101827),
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600),
-                        items: _hospitals
-                            .map((h) => DropdownMenuItem(
-                                  value: h,
-                                  child: Text(
-                                    h,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ))
-                            .toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() {
-                              _selectedHospital = val;
-                            });
-                            _savePreferences();
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                IconButton.filledTonal(
-                  tooltip: 'Gán BV này cho TẤT CẢ người trong DS',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  icon: const Icon(Icons.done_all_rounded,
-                      color: Color(0xFF5EEAD4)),
-                  onPressed:
-                      _people.isEmpty ? null : () => _applyHospitalToAll(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            if (hasPerson) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF5EEAD4).withOpacity(0.16),
-                      const Color(0xFFF0ABFC).withOpacity(0.10),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.10)),
-                ),
-                child: Column(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 11,
-                          backgroundColor: const Color(0xFF5EEAD4),
-                          foregroundColor: const Color(0xFF06211D),
-                          child: Text('${_currentPersonIndex + 1}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 12)),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            current?['name'] ?? '',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w900, fontSize: 12),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton.filledTonal(
-                          tooltip: 'Điền người này',
-                          visualDensity: VisualDensity.compact,
-                          iconSize: 18,
-                          icon: const Icon(Icons.auto_fix_high_rounded),
-                          onPressed: _fillCurrentPersonInWeb,
-                        ),
-                        IconButton.filled(
-                          tooltip: 'Người tiếp theo',
-                          visualDensity: VisualDensity.compact,
-                          iconSize: 20,
-                          icon: const Icon(Icons.navigate_next_rounded),
-                          onPressed: () {
-                            setState(() {
-                              _currentPersonIndex =
-                                  _currentPersonIndex < _people.length - 1
-                                      ? _currentPersonIndex + 1
-                                      : 0;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.badge_outlined,
-                                    size: 12, color: Color(0xFFF0ABFC)),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    current?['role'] ?? 'Chưa có chức vụ',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.8),
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.local_hospital_outlined,
-                                    size: 12, color: Color(0xFF5EEAD4)),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    current?['department'] ?? 'Chưa có khoa',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.8),
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.local_hospital_rounded,
-                              size: 12, color: Color(0xFF93C5FD)),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              current?['hospital'] ?? _selectedHospital,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white.withOpacity(0.85),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _loadingIcon(_isGettingPhone || _isLoadingService,
+                        Icons.phone_android_rounded),
+                    const SizedBox(width: 3),
+                    const Text('Số',
+                        style: TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
-            ] else ...[
-              Container(
-                height: 38,
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(16),
+              const SizedBox(width: 5),
+              Expanded(
+                child: _valuePill(
+                  _currentPhoneNumber,
+                  'Số điện thoại...',
+                  Icons.call_rounded,
+                  _currentPhoneNumber.isEmpty
+                      ? null
+                      : () => _copy(_currentPhoneNumber, 'Số điện thoại'),
                 ),
-                child: const Text(
-                  'Chưa có dữ liệu. Bấm cài đặt để dán NOIDUNGDIEN.TXT.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(width: 5),
+              IconButton.filledTonal(
+                tooltip: 'Điền SĐT vào Web',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 29),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.content_paste_go_rounded),
+                onPressed:
+                    _currentPhoneNumber.isEmpty ? null : _fillPhoneInWeb,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // 2. Hàng OTP (Bấm vào OTP là copy ngay)
+          Row(
+            children: [
+              FilledButton(
+                onPressed: _isGettingOtp ? null : _getOtp,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(58, 29),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
+                    const SizedBox(width: 3),
+                    Text(_isGettingOtp ? 'Chờ' : 'OTP',
+                        style: const TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: _valuePill(
+                  _currentOtp,
+                  _otpStatusText.isNotEmpty ? _otpStatusText : 'Mã OTP...',
+                  Icons.password_rounded,
+                  _currentOtp.isEmpty ? null : () => _copy(_currentOtp, 'OTP'),
+                ),
+              ),
+              const SizedBox(width: 5),
+              IconButton.filledTonal(
+                tooltip: 'Điền OTP vào Web',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 29),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.content_paste_go_rounded),
+                onPressed: _currentOtp.isEmpty ? null : _fillOtpInWeb,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // 3. Hàng Bệnh viện & Nút Gửi Form Web (Tích hợp cùng 1 dòng siêu gọn)
+          Row(
+            children: [
+              Expanded(
+                flex: 11,
+                child: Container(
+                  height: 29,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _hospitals.contains(_selectedHospital)
+                          ? _selectedHospital
+                          : (_hospitals.isNotEmpty ? _hospitals.first : null),
+                      isExpanded: true,
+                      icon: const Icon(Icons.arrow_drop_down,
+                          size: 16, color: Color(0xFF5EEAD4)),
+                      dropdownColor: const Color(0xFF101827),
+                      style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600),
+                      items: _hospitals
+                          .map((h) => DropdownMenuItem(
+                                value: h,
+                                child: Text(h, overflow: TextOverflow.ellipsis),
+                              ))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedHospital = val);
+                          _savePreferences();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                tooltip: 'Gán BV này cho TẤT CẢ người trong DS',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 30, minHeight: 29),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.done_all_rounded,
+                    color: Color(0xFF5EEAD4)),
+                onPressed:
+                    _people.isEmpty ? null : () => _applyHospitalToAll(),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                flex: 8,
+                child: SizedBox(
+                  height: 29,
+                  child: FilledButton.icon(
+                    onPressed: _submitFormInWeb,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFF0ABFC),
+                      foregroundColor: const Color(0xFF1E0824),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 12),
+                    label: const Text(
+                      'Gửi Form',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                    ),
+                  ),
                 ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 4),
+          // 4. Thẻ người hiện tại (2 dòng cực kỳ gọn gàng)
+          if (hasPerson)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF5EEAD4).withOpacity(0.14),
+                    const Color(0xFFF0ABFC).withOpacity(0.08),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withOpacity(0.10)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 9,
+                        backgroundColor: const Color(0xFF5EEAD4),
+                        foregroundColor: const Color(0xFF06211D),
+                        child: Text(
+                          '${_currentPersonIndex + 1}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w900, fontSize: 9),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          current?['name'] ?? '',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w900, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton.filledTonal(
+                        tooltip: 'Điền người này vào Web',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 15,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 28, minHeight: 26),
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6)),
+                        ),
+                        icon: const Icon(Icons.auto_fix_high_rounded),
+                        onPressed: _fillCurrentPersonInWeb,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton.filled(
+                        tooltip: 'Người tiếp theo',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 15,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 28, minHeight: 26),
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6)),
+                        ),
+                        icon: const Icon(Icons.navigate_next_rounded),
+                        onPressed: () {
+                          setState(() {
+                            _currentPersonIndex =
+                                _currentPersonIndex < _people.length - 1
+                                    ? _currentPersonIndex + 1
+                                    : 0;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      _miniChip(
+                          Icons.badge_outlined,
+                          current?['role'] ?? 'Chức vụ',
+                          const Color(0xFFF0ABFC)),
+                      const SizedBox(width: 4),
+                      _miniChip(
+                          Icons.domain_rounded,
+                          current?['department'] ?? 'Khoa',
+                          const Color(0xFF5EEAD4)),
+                      const SizedBox(width: 4),
+                      _miniChip(
+                          Icons.local_hospital_rounded,
+                          current?['hospital'] ?? _selectedHospital,
+                          const Color(0xFF93C5FD)),
+                    ],
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              height: 30,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'Chưa có dữ liệu. Bấm icon Cài đặt ở góc trên để dán danh sách.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.white70),
+              ),
+            ),
+        ],
       ),
     );
   }

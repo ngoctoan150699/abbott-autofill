@@ -255,6 +255,7 @@ Ví dụ keyword cần hỗ trợ:
 | Số điện thoại | `sdt`, `so dien thoai`, `dien thoai`, `phone`, `mobile` |
 | OTP | `otp`, `ma`, `ma xac thuc`, `code`, `verification` |
 | Khoa/Phòng ban | `khoa`, `phong ban`, `department`, `unit` |
+| Phòng ban(Khác) | `phong ban(khac)`, `phong ban khac`, `khoa khac` (xuất hiện khi chọn Khoa là Khac) |
 | Chức danh | `chuc danh`, `title`, `position`, `job title` |
 | Bệnh viện | `benh vien`, `hospital`, `workplace` |
 | Vai trò | `vai tro`, `role`, `nguoi tham du`, `participant` |

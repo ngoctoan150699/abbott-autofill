@@ -218,6 +218,15 @@ class _MainScreenState extends State<MainScreen> {
             if (m['hospital'] == null || m['hospital']!.isEmpty) {
               m['hospital'] = _selectedHospital;
             }
+            m['otherDepartment'] ??= '';
+            if (m['department'] != null &&
+                m['department']!.isNotEmpty &&
+                !kDepartments.contains(m['department'])) {
+              if (m['otherDepartment']!.isEmpty) {
+                m['otherDepartment'] = m['department']!;
+              }
+              m['department'] = 'Khac';
+            }
             return m;
           }).toList();
         } catch (_) {
@@ -568,6 +577,7 @@ class _MainScreenState extends State<MainScreen> {
         fillBy(['ho va ten', 'ho ten', 'name'], data.name);
         fillBy(['benh vien', 'hospital'], data.hospital);
         fillBy(['phong ban', 'khoa', 'department'], data.department);
+        fillBy(['phong ban(khac)', 'phong ban (khac)', 'phong ban khac', 'khoa khac'], data.otherDepartment);
         fillBy(['chuc danh', 'title'], data.role);
         fillBy(['vai tro', 'role'], data.attendeeRole);
       })();
@@ -621,6 +631,7 @@ class _MainScreenState extends State<MainScreen> {
       'person': {
         'name': p['name'] ?? '',
         'department': p['department'] ?? '',
+        'otherDepartment': p['otherDepartment'] ?? '',
         'role': p['role'] ?? '',
         'attendeeRole': 'Nguoi tham du',
         'hospital': hospitalToFill,
@@ -651,13 +662,24 @@ class _MainScreenState extends State<MainScreen> {
           for (let i = 0; i < 4 && pNode; i++, pNode = pNode.parentElement) {
             txt += ' ' + (pNode.innerText || '');
           }
-          txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
+          txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '') + ' ' + (el.getAttribute('aria-label') || '');
           return norm(txt);
         }
         
         function setVal(el, val) {
           if (!el || val == null || val === '') return false;
-          el.value = val;
+          try {
+            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) {
+              setter.call(el, val);
+            } else {
+              el.value = val;
+            }
+          } catch (_) {
+            el.value = val;
+          }
+          el.focus();
           el.dispatchEvent(new Event('input', {bubbles: true}));
           el.dispatchEvent(new Event('change', {bubbles: true}));
           return true;
@@ -667,7 +689,8 @@ class _MainScreenState extends State<MainScreen> {
 
         // 1. Fill Name
         if (enabled.name) {
-          const nameInput = inputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
+          const freshInputs = Array.from(document.querySelectorAll('input, textarea'));
+          const nameInput = freshInputs.find(i => ['ho va ten', 'ho ten', 'name'].some(k => labelOf(i).includes(k)));
           if (nameInput) {
             setVal(nameInput, data.name);
             await delay(stepDelay('name'));
@@ -676,7 +699,7 @@ class _MainScreenState extends State<MainScreen> {
 
         // Helper to fill Element UI dropdown. fallbackIndex follows the form order:
         // Vai trò, Bệnh viện, Phòng ban/Khoa, Chức danh.
-        async function fillDropdown(keywords, targetVal, fallbackIndex, waitMs) {
+        async function fillDropdown(keywords, targetVal, fallbackIndex, waitMs, excludedKeywords = []) {
           if (!targetVal) return false;
 
           const selectInputs = Array.from(
@@ -692,9 +715,11 @@ class _MainScreenState extends State<MainScreen> {
             txt += ' ' + (el.placeholder || '') + ' ' + (el.name || '') + ' ' + (el.id || '');
             return norm(txt);
           }
-          const input = selectInputs.find(el =>
-            keywords.some(k => dropdownLabel(el).includes(k))
-          ) || selectInputs[fallbackIndex];
+          const input = selectInputs.find(el => {
+            const lbl = dropdownLabel(el);
+            return keywords.some(k => lbl.includes(k)) &&
+                   !excludedKeywords.some(ex => lbl.includes(ex));
+          }) || selectInputs[fallbackIndex];
           if (!input) return false;
 
           const wasReadOnly = input.readOnly;
@@ -744,7 +769,39 @@ class _MainScreenState extends State<MainScreen> {
           await fillDropdown(['benh vien', 'hospital'], data.hospital, 1, stepDelay('hospital'));
         }
         if (enabled.department) {
-          await fillDropdown(['phong ban', 'khoa', 'department'], data.department, 2, stepDelay('department'));
+          const deptVal = (data.department || '').trim();
+          await fillDropdown(['phong ban', 'khoa', 'department'], deptVal, 2, stepDelay('department'), ['khac', 'other']);
+
+          // If department is 'Khac' (or contains 'khac') or otherDepartment has value:
+          if (norm(deptVal) === 'khac' || norm(deptVal).includes('khac') || data.otherDepartment) {
+            await delay(Math.max(300, Math.floor(stepDelay('department') / 2)));
+
+            let otherInput = null;
+            for (let attempt = 0; attempt < 8; attempt++) {
+              const freshInputs = Array.from(document.querySelectorAll('input, textarea'));
+              otherInput = freshInputs.find(i => {
+                if (i.closest('.el-select') || i.getAttribute('role') === 'combobox' || i.readOnly) return false;
+                const lbl = labelOf(i);
+                return (
+                  lbl.includes('phong ban(khac)') ||
+                  lbl.includes('phong ban (khac)') ||
+                  lbl.includes('phong ban khac') ||
+                  (lbl.includes('phong ban') && lbl.includes('khac')) ||
+                  (lbl.includes('khoa') && lbl.includes('khac')) ||
+                  (lbl.includes('department') && lbl.includes('other'))
+                ) && !['vai tro', 'benh vien', 'chuc danh'].some(k => lbl.includes(k));
+              });
+              if (otherInput) break;
+              await delay(150);
+            }
+
+            const otherVal = (data.otherDepartment || '').trim() ||
+                             (norm(deptVal) !== 'khac' ? deptVal : '');
+            if (otherInput && otherVal) {
+              setVal(otherInput, otherVal);
+              await delay(stepDelay('department'));
+            }
+          }
         }
         if (enabled.role) {
           await fillDropdown(['chuc danh', 'title'], data.role, 3, stepDelay('role'));
@@ -1098,7 +1155,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                     subtitle: Text(
-                      '${p['role'] ?? 'Chức danh'} • ${p['department'] ?? 'Khoa'}\n$hosp',
+                      '${p['role'] ?? 'Chức danh'} • ${p['department'] == 'Khac' && (p['otherDepartment'] ?? '').trim().isNotEmpty ? 'Khác: ${p['otherDepartment']!.trim()}' : (p['department'] ?? 'Khoa')}\n$hosp',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.white.withOpacity(0.65),
@@ -1444,7 +1501,12 @@ class _MainScreenState extends State<MainScreen> {
                             const SizedBox(width: 4),
                             _infoTag(
                               Icons.domain_rounded,
-                              current?['department'] ?? 'Khoa',
+                              current?['department'] == 'Khac' &&
+                                      (current?['otherDepartment'] ?? '')
+                                          .trim()
+                                          .isNotEmpty
+                                  ? 'Khác: ${current!['otherDepartment']!.trim()}'
+                                  : (current?['department'] ?? 'Khoa'),
                               const Color(0xFF5EEAD4),
                             ),
                             if ((current?['hospital'] ?? '')
@@ -1747,14 +1809,47 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
     final lines = _pasteController.text.split('\n');
     for (var line in lines) {
       if (line.trim().isEmpty) continue;
-      final parts = line.split('-');
+      final parts = line.split('-').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       if (parts.length >= 2) {
-        final rawDepartment = parts[1].trim();
-        final rawRole = parts.length > 2 ? parts[2].trim() : '';
-        final rawHospital = parts.length > 3 ? parts[3].trim() : '';
+        final name = parts[0];
+        String rawDepartment = parts[1];
+        String rawRole = '';
+        String rawHospital = '';
+        String otherDept = '';
+
+        final s1 = _cleanNoAccent(rawDepartment).toLowerCase();
+        if ((s1 == 'khac' || s1 == 'khoa khac') && parts.length >= 4) {
+          final s2Role = _cleanNoAccent(parts[2]).toLowerCase();
+          final isPart2Role = s2Role == 'bs' ||
+              s2Role.contains('bac si') ||
+              s2Role.contains('bac sy') ||
+              s2Role.contains('truong') ||
+              s2Role.contains('dieu duong') ||
+              s2Role.contains('y ta') ||
+              s2Role.contains('duoc') ||
+              kTitles.contains(_formatTitle(parts[2]));
+          if (!isPart2Role) {
+            otherDept = parts[2];
+            rawRole = parts.length > 3 ? parts[3] : '';
+            rawHospital = parts.length > 4 ? parts[4] : '';
+          } else {
+            rawRole = parts[2];
+            rawHospital = parts.length > 3 ? parts[3] : '';
+          }
+        } else {
+          rawRole = parts.length > 2 ? parts[2] : '';
+          rawHospital = parts.length > 3 ? parts[3] : '';
+        }
 
         String guessDept = _formatDepartment(rawDepartment);
-        if (!kDepartments.contains(guessDept)) guessDept = kDepartments.first;
+        if (guessDept == 'Khac') {
+          if (otherDept.isEmpty && s1 != 'khac' && s1 != 'khoa khac') {
+            otherDept = rawDepartment;
+          }
+        } else if (!kDepartments.contains(guessDept)) {
+          otherDept = rawDepartment;
+          guessDept = 'Khac';
+        }
 
         String guessRole = _formatTitle(rawRole);
         if (!kTitles.contains(guessRole)) guessRole = kTitles.first;
@@ -1766,8 +1861,9 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
         }
 
         _people.add({
-          'name': parts[0].trim(),
+          'name': name,
           'department': guessDept,
+          'otherDepartment': otherDept,
           'role': guessRole,
           'hospital': guessHospital,
         });
@@ -1932,6 +2028,13 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
 
   String _formatDepartment(String raw) {
     final s = _cleanNoAccent(raw).toLowerCase();
+    if (s == 'khac' ||
+        s == 'khoa khac' ||
+        s == 'phong ban khac' ||
+        s == 'phong khac') return 'Khac';
+    for (final d in kDepartments) {
+      if (_cleanNoAccent(d).toLowerCase() == s) return d;
+    }
     if (s.contains('gay me')) return 'Khoa Phau Thuat Gay Me - Hoi Suc';
     if (s.contains('ngoai than kinh')) return 'Khoa Ngoai Than Kinh';
     if (s.contains('chan thuong') ||
@@ -2115,6 +2218,27 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                           style: TextStyle(
                               fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _people.insert(0, {
+                          'name': '',
+                          'department': kDepartments.first,
+                          'otherDepartment': '',
+                          'role': kTitles.first,
+                          'hospital': _selectedHospital,
+                        });
+                      });
+                    },
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
+                    label: const Text('+ Thêm người',
+                        style: TextStyle(fontSize: 11)),
                   ),
                   if (_people.isNotEmpty) ...[
                     const SizedBox(width: 8),
@@ -2304,6 +2428,36 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                                   ),
                                 ],
                               ),
+                              if (p['department'] == 'Khac') ...[
+                                const SizedBox(height: 5),
+                                TextFormField(
+                                  key: ValueKey('other_dept_$index'),
+                                  initialValue: p['otherDepartment'] ?? '',
+                                  onChanged: (val) =>
+                                      p['otherDepartment'] = val,
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.white),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    labelText: 'Phòng ban(Khác)',
+                                    labelStyle: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF5EEAD4),
+                                        fontWeight: FontWeight.bold),
+                                    hintText:
+                                        'Nhập phòng ban khác (VD: Khoa nhi)...',
+                                    hintStyle: TextStyle(
+                                        fontSize: 10.5,
+                                        color: Colors.white.withOpacity(0.35)),
+                                    prefixIcon: const Icon(
+                                        Icons.edit_note_rounded,
+                                        size: 16,
+                                        color: Color(0xFF5EEAD4)),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 6),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 5),
                               // Dòng 3: Bệnh Viện
                               DropdownButtonFormField<String>(

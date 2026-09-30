@@ -2,7 +2,7 @@
 
 ## 1. Mục tiêu dự án
 
-Dự án cần xây dựng một ứng dụng hỗ trợ đăng ký sự kiện Abbott trên thiết bị Android.
+Dự án cần xây dựng một ứng dụng hỗ trợ đăng ký sự kiện Abbott trên thiết bị Android và máy tính Windows (Desktop).
 
 Ứng dụng hoạt động như một công cụ trợ lý nhập liệu: người dùng mở trang đăng ký Abbott bên trong ứng dụng, chọn dữ liệu người tham dự, thuê số điện thoại nhận OTP, lấy mã OTP và điền nhanh các thông tin cần thiết vào form đăng ký.
 
@@ -14,7 +14,7 @@ Mục tiêu chính là giảm thao tác thủ công khi xử lý nhiều ngườ
 
 ## 2. Nền tảng và công nghệ đề xuất
 
-Ứng dụng nên được xây dựng bằng Flutter để có thể phát triển giao diện nhanh, dễ đóng gói thành APK Android và có khả năng mở rộng sang nền tảng khác nếu cần.
+Ứng dụng được xây dựng bằng Flutter hỗ trợ đa nền tảng (Android và Windows Desktop).
 
 Các thành phần công nghệ chính:
 

@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform, Process;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_windows/webview_windows.dart' as win_web;
 
 import 'app_preferences.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppPreferences.init();
   runApp(const MyApp());
 }
 
@@ -74,7 +78,13 @@ class _MainScreenState extends State<MainScreen> {
   final TextEditingController _tokenController =
       TextEditingController(text: 'de6faac93d8d4f3294070fe48a11224b');
 
-  late final WebViewController _webViewController;
+  WebViewController? _webViewController;
+  win_web.WebviewController? _windowsWebviewController;
+  bool _isWindowsWebviewInitialized = false;
+  bool _isPageLoading = false;
+  String _viotpBalance = '';
+  bool _isLoadingBalance = false;
+  final FocusNode _urlFocusNode = FocusNode();
 
   bool _isLoadingService = false;
   bool _isGettingPhone = false;
@@ -114,28 +124,108 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-            _webViewController.runJavaScript('''
-              navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                  success({
-                      coords: { latitude: 15.114757, longitude: 108.791015, accuracy: 10 },
-                      timestamp: Date.now()
-                  });
-              };
-              navigator.geolocation.watchPosition = function(success, error, options) {
-                  navigator.geolocation.getCurrentPosition(success, error, options);
-                  return 1;
-              };
-            ''');
-          },
-          onPageFinished: (String url) {},
-        ),
-      );
+    if (Platform.isWindows) {
+      _initWindowsWebview();
+    } else if (WebViewPlatform.instance != null) {
+      _webViewController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (String url) {
+              if (mounted) setState(() => _isPageLoading = true);
+              _webViewController?.runJavaScript('''
+                navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                    success({
+                        coords: { latitude: 15.114757, longitude: 108.791015, accuracy: 10 },
+                        timestamp: Date.now()
+                    });
+                };
+                navigator.geolocation.watchPosition = function(success, error, options) {
+                    navigator.geolocation.getCurrentPosition(success, error, options);
+                    return 1;
+                };
+              ''');
+            },
+            onPageFinished: (String url) {
+              if (mounted) setState(() => _isPageLoading = false);
+            },
+          ),
+        );
+    }
     _loadPreferences();
+  }
+
+  Future<void> _initWindowsWebview() async {
+    try {
+      final controller = win_web.WebviewController();
+      await controller.initialize();
+      await controller.addScriptToExecuteOnDocumentCreated('''
+        navigator.geolocation.getCurrentPosition = function(success, error, options) {
+            success({
+                coords: { latitude: 15.114757, longitude: 108.791015, accuracy: 10 },
+                timestamp: Date.now()
+            });
+        };
+        navigator.geolocation.watchPosition = function(success, error, options) {
+            navigator.geolocation.getCurrentPosition(success, error, options);
+            return 1;
+        };
+      ''');
+
+      controller.loadingState.listen((state) {
+        if (mounted) {
+          setState(() {
+            _isPageLoading = (state == win_web.LoadingState.loading);
+          });
+        }
+        if (state == win_web.LoadingState.navigationCompleted) {
+          controller.executeScript('''
+            navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                success({
+                    coords: { latitude: 15.114757, longitude: 108.791015, accuracy: 10 },
+                    timestamp: Date.now()
+                });
+            };
+            navigator.geolocation.watchPosition = function(success, error, options) {
+                navigator.geolocation.getCurrentPosition(success, error, options);
+                return 1;
+            };
+          ''');
+        }
+      });
+
+      controller.url.listen((url) {
+        if (url.isNotEmpty && url != 'about:blank' && mounted) {
+          if (!_urlFocusNode.hasFocus && _urlController.text != url) {
+            setState(() {
+              _urlController.text = url;
+            });
+          }
+        }
+      });
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      setState(() {
+        _windowsWebviewController = controller;
+        _isWindowsWebviewInitialized = true;
+      });
+
+      final currentUrl = _urlController.text.trim();
+      if (currentUrl.isNotEmpty) {
+        _loadUrl(silent: true);
+      }
+    } catch (e) {
+      debugPrint('Error initializing Windows WebView: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khởi tạo WebView trên Windows: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -143,6 +233,8 @@ class _MainScreenState extends State<MainScreen> {
     _cancelOtpTimer();
     _urlController.dispose();
     _tokenController.dispose();
+    _urlFocusNode.dispose();
+    _windowsWebviewController?.dispose();
     super.dispose();
   }
 
@@ -247,9 +339,11 @@ class _MainScreenState extends State<MainScreen> {
         } catch (_) {}
       }
     });
+    _fetchBalance();
     if (_urlController.text.isNotEmpty) {
-      _loadUrl();
+      _loadUrl(silent: true);
     }
+    _savePreferences();
   }
 
   Future<void> _savePreferences() async {
@@ -269,16 +363,153 @@ class _MainScreenState extends State<MainScreen> {
         }));
   }
 
-  void _loadUrl() {
+  bool get _isWebviewAvailable {
+    if (Platform.isWindows) {
+      return _windowsWebviewController != null && _isWindowsWebviewInitialized;
+    }
+    return _webViewController != null;
+  }
+
+  Future<void> _runScriptInWeb(String script) async {
+    if (Platform.isWindows) {
+      if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+        await _windowsWebviewController!.executeScript(script);
+      }
+    } else {
+      if (_webViewController != null) {
+        await _webViewController!.runJavaScript(script);
+      }
+    }
+  }
+
+  Future<dynamic> _runScriptReturningResult(String script) async {
+    if (Platform.isWindows) {
+      if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+        return await _windowsWebviewController!.executeScript(script);
+      }
+      return null;
+    } else {
+      if (_webViewController != null) {
+        return await _webViewController!.runJavaScriptReturningResult(script);
+      }
+      return null;
+    }
+  }
+
+  void _loadUrl({bool silent = false}) {
     final url = _urlController.text.trim();
     if (url.isNotEmpty) {
       Uri uri = Uri.parse(url);
       if (!uri.hasScheme) {
         uri = Uri.parse('https://$url');
       }
-      _webViewController.loadRequest(uri);
+      if (Platform.isWindows) {
+        if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+          _windowsWebviewController!.loadUrl(uri.toString());
+        } else if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'WebView trên Windows đang khởi tạo, vui lòng thử lại sau giây lát.'),
+            ),
+          );
+        }
+      } else {
+        if (_webViewController != null) {
+          _webViewController!.loadRequest(uri);
+        } else if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('WebView chỉ hoạt động trên Android và Windows.'),
+            ),
+          );
+        }
+      }
       _savePreferences();
     }
+  }
+
+  Future<void> _goBack() async {
+    if (Platform.isWindows) {
+      if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+        await _windowsWebviewController!.goBack();
+      }
+    } else {
+      if (_webViewController != null && await _webViewController!.canGoBack()) {
+        await _webViewController!.goBack();
+      }
+    }
+  }
+
+  Future<void> _goForward() async {
+    if (Platform.isWindows) {
+      if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+        await _windowsWebviewController!.goForward();
+      }
+    } else {
+      if (_webViewController != null && await _webViewController!.canGoForward()) {
+        await _webViewController!.goForward();
+      }
+    }
+  }
+
+  Future<void> _reloadPage() async {
+    if (Platform.isWindows) {
+      if (_windowsWebviewController != null && _isWindowsWebviewInitialized) {
+        await _windowsWebviewController!.reload();
+      }
+    } else {
+      if (_webViewController != null) {
+        await _webViewController!.reload();
+      }
+    }
+  }
+
+  void _openInExternalBrowser() {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) return;
+    Uri uri = Uri.parse(url);
+    if (!uri.hasScheme) {
+      uri = Uri.parse('https://$url');
+    }
+    if (Platform.isWindows) {
+      Process.run('cmd', ['/c', 'start', '', uri.toString()]);
+    }
+  }
+
+  Future<void> _fetchBalance() async {
+    final token = _tokenController.text.trim();
+    if (token.isEmpty) return;
+    setState(() => _isLoadingBalance = true);
+    try {
+      final url = Uri.parse('https://api.viotp.com/users/balance?token=$token');
+      final res = await http.get(url).timeout(const Duration(seconds: 5));
+      final json = jsonDecode(res.body);
+      if (json['status_code'] == 200 && json['data'] != null) {
+        final bal = json['data']['balance'];
+        if (bal != null) {
+          final balNum =
+              (bal is num) ? bal.toInt() : int.tryParse(bal.toString()) ?? 0;
+          if (mounted) {
+            setState(() {
+              _viotpBalance = '${_formatCurrency(balNum)} đ';
+            });
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingBalance = false);
+      }
+    }
+  }
+
+  String _formatCurrency(int value) {
+    return value.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
   }
 
   Future<void> _fetchServiceId() async {
@@ -522,8 +753,9 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _fillWebFields(Map<String, String> data) async {
+    if (!_isWebviewAvailable) return;
     final payload = jsonEncode(data);
-    await _webViewController.runJavaScript('''
+    await _runScriptInWeb('''
       (function() {
         const data = $payload;
         const norm = (s) => (s || '').toString().toLowerCase()
@@ -585,9 +817,15 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _fillPhoneInWeb() async {
+    if (!_isWebviewAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('WebView chưa sẵn sàng!')),
+      );
+      return;
+    }
     await _fillWebFields({'phone': _currentPhoneNumber});
     await Future.delayed(const Duration(milliseconds: 500));
-    final clicked = await _webViewController.runJavaScriptReturningResult('''
+    final clicked = await _runScriptReturningResult('''
       (function() {
         const norm = (s) => (s || '').toString().toLowerCase()
           .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
@@ -605,7 +843,8 @@ class _MainScreenState extends State<MainScreen> {
     ''');
 
     if (!mounted) return;
-    if (clicked != true) {
+    final isClicked = clicked == true || clicked == 'true' || clicked == 1;
+    if (!isClicked) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Đã điền SĐT nhưng chưa tìm thấy nút Gửi mã!')));
       return;
@@ -640,7 +879,13 @@ class _MainScreenState extends State<MainScreen> {
       'delays': _fillDelayMs,
     });
 
-    await _webViewController.runJavaScript('''
+    if (!_isWebviewAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('WebView chưa sẵn sàng!')),
+      );
+      return;
+    }
+    await _runScriptInWeb('''
       (async function() {
         const settings = $payload;
         const data = settings.person;
@@ -833,7 +1078,13 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _submitFormInWeb() async {
-    await _webViewController.runJavaScript('''
+    if (!_isWebviewAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('WebView chưa sẵn sàng!')),
+      );
+      return;
+    }
+    await _runScriptInWeb('''
       (function() {
         const norm = (s) => (s || '').toString().toLowerCase()
           .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
@@ -893,8 +1144,335 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.f5) {
+            _reloadPage();
+            return KeyEventResult.handled;
+          }
+          if (HardwareKeyboard.instance.isAltPressed) {
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+              _goBack();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+              _goForward();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyN) {
+              if (_people.isNotEmpty) {
+                setState(() {
+                  _currentPersonIndex =
+                      (_currentPersonIndex + 1) % _people.length;
+                });
+              }
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyP) {
+              if (_people.isNotEmpty) {
+                setState(() {
+                  _currentPersonIndex = _currentPersonIndex > 0
+                      ? _currentPersonIndex - 1
+                      : _people.length - 1;
+                });
+              }
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyF) {
+              _fillCurrentPersonInWeb();
+              return KeyEventResult.handled;
+            }
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = constraints.maxWidth >= 850;
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF07111F), Color(0xFF102033), Color(0xFF08111E)],
+              ),
+            ),
+            child: isDesktop
+                ? _buildDesktopLayout()
+                : SafeArea(child: _buildMobileLayout()),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    return Row(
+      children: [
+        // Sidebar (400px)
+        Container(
+          width: 400,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0C1524),
+            border: Border(
+              right: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+          ),
+          child: Column(
+            children: [
+              _buildDesktopSidebarHeader(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildAttendeeCard(isDesktop: true),
+                      const SizedBox(height: 10),
+                      _buildPhoneAndOtpCard(isDesktop: true),
+                      const SizedBox(height: 10),
+                      _buildHospitalAndSubmitCard(isDesktop: true),
+                      const SizedBox(height: 10),
+                      _buildQuickCopySection(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Main Web Area
+        Expanded(
+          child: Column(
+            children: [
+              _buildDesktopBrowserBar(),
+              if (_isPageLoading)
+                const LinearProgressIndicator(
+                  minHeight: 2.5,
+                  color: Color(0xFF5EEAD4),
+                  backgroundColor: Colors.transparent,
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: ColoredBox(
+                      color: Colors.white,
+                      child: _buildWebViewWidget(),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopSidebarHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.2),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF5EEAD4), Color(0xFF38BDF8)],
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.flash_on_rounded,
+                size: 16, color: Color(0xFF06211D)),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Abbott Helper',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .3,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  'Trợ lý đăng ký sự kiện',
+                  style: TextStyle(fontSize: 10, color: Colors.white54),
+                ),
+              ],
+            ),
+          ),
+          // ViOTP Balance badge
+          InkWell(
+            onTap: _isLoadingBalance ? null : _fetchBalance,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF5EEAD4).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: const Color(0xFF5EEAD4).withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isLoadingBalance)
+                    const SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: Color(0xFF5EEAD4)),
+                    )
+                  else
+                    const Icon(Icons.account_balance_wallet_rounded,
+                        size: 12, color: Color(0xFF5EEAD4)),
+                  const SizedBox(width: 4),
+                  Text(
+                    _viotpBalance.isNotEmpty ? _viotpBalance : 'Số dư ViOTP',
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF5EEAD4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton.filledTonal(
+            tooltip: 'Cài đặt (Token, DS Người, Bệnh viện)',
+            iconSize: 17,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.tune_rounded),
+            onPressed: () => _showSettingsDialog(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopBrowserBar() {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1524),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Quay lại (Alt+Left)',
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+            onPressed: _goBack,
+          ),
+          IconButton(
+            tooltip: 'Tiến tới (Alt+Right)',
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white70),
+            onPressed: _goForward,
+          ),
+          IconButton(
+            tooltip: 'Tải lại (F5)',
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+            onPressed: _reloadPage,
+          ),
+          const SizedBox(width: 6),
+          // Address Input Bar
+          Expanded(
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.fromLTRB(10, 0, 4, 0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.link_rounded,
+                      size: 16, color: Color(0xFF5EEAD4)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _urlController,
+                      focusNode: _urlFocusNode,
+                      style: const TextStyle(fontSize: 12.5),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        fillColor: Colors.transparent,
+                        filled: false,
+                        hintText: 'Dán link trang đăng ký Abbott...',
+                        hintStyle:
+                            TextStyle(fontSize: 12, color: Colors.white38),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      onSubmitted: (_) => _loadUrl(),
+                    ),
+                  ),
+                  if (_urlController.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.clear_rounded,
+                          size: 14, color: Colors.white38),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        setState(() => _urlController.clear());
+                      },
+                    ),
+                  FilledButton(
+                    onPressed: _loadUrl,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(48, 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(7)),
+                    ),
+                    child: const Text('Mở',
+                        style: TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton.filledTonal(
+            tooltip: 'Mở bằng trình duyệt ngoài (Chrome/Edge)',
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.open_in_browser_rounded),
+            onPressed: _openInExternalBrowser,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout() {
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         toolbarHeight: 44,
         elevation: 0,
@@ -906,6 +1484,29 @@ class _MainScreenState extends State<MainScreen> {
               fontWeight: FontWeight.w800, letterSpacing: .2, fontSize: 16),
         ),
         actions: [
+          if (_viotpBalance.isNotEmpty)
+            InkWell(
+              onTap: _fetchBalance,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5EEAD4).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: const Color(0xFF5EEAD4).withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  _viotpBalance,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF5EEAD4),
+                  ),
+                ),
+              ),
+            ),
           IconButton.filledTonal(
             tooltip: 'Cài đặt',
             iconSize: 18,
@@ -916,91 +1517,147 @@ class _MainScreenState extends State<MainScreen> {
           const SizedBox(width: 6),
         ],
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF07111F), Color(0xFF102033), Color(0xFF08111E)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.fromLTRB(10, 2, 4, 2),
-                  decoration: _glassDecoration(radius: 14),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.link_rounded,
-                          size: 16, color: Color(0xFF5EEAD4)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: _urlController,
-                          style: const TextStyle(fontSize: 12),
-                          decoration: const InputDecoration(
-                            isDense: true,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            fillColor: Colors.transparent,
-                            filled: false,
-                            hintText: 'Dán link Abbott...',
-                            hintStyle:
-                                TextStyle(fontSize: 12, color: Colors.white38),
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          onSubmitted: (_) => _loadUrl(),
-                        ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+            child: Container(
+              height: 38,
+              padding: const EdgeInsets.fromLTRB(10, 2, 4, 2),
+              decoration: _glassDecoration(radius: 14),
+              child: Row(
+                children: [
+                  const Icon(Icons.link_rounded,
+                      size: 16, color: Color(0xFF5EEAD4)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _urlController,
+                      style: const TextStyle(fontSize: 12),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        fillColor: Colors.transparent,
+                        filled: false,
+                        hintText: 'Dán link Abbott...',
+                        hintStyle:
+                            TextStyle(fontSize: 12, color: Colors.white38),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      FilledButton(
-                        onPressed: _loadUrl,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(46, 30),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: const Text('Mở',
-                            style: TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: ColoredBox(
-                      color: Colors.white,
-                      child: WebViewWidget(controller: _webViewController),
+                      onSubmitted: (_) => _loadUrl(),
                     ),
                   ),
+                  FilledButton(
+                    onPressed: _loadUrl,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(46, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Mở',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isPageLoading)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: Color(0xFF5EEAD4),
+              backgroundColor: Colors.transparent,
+            ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: ColoredBox(
+                  color: Colors.white,
+                  child: _buildWebViewWidget(),
                 ),
               ),
-              _buildControlPanel(),
-            ],
+            ),
           ),
-        ),
+          _buildControlPanel(),
+        ],
       ),
     );
   }
 
+  Widget _buildWebViewWidget() {
+    if (Platform.isWindows) {
+      if (_isWindowsWebviewInitialized && _windowsWebviewController != null) {
+        return win_web.Webview(_windowsWebviewController!);
+      } else {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Color(0xFF5EEAD4),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Đang khởi tạo WebView Windows...',
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } else if (_webViewController != null) {
+      return WebViewWidget(controller: _webViewController!);
+    } else {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.devices, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text(
+              'WebView nhúng chỉ hoạt động trên Android & Windows.',
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Bạn có thể copy số, OTP và dùng trình duyệt bên ngoài.',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   BoxDecoration _glassDecoration({double radius = 24}) {
     return BoxDecoration(
-      color: Colors.white.withOpacity(0.08),
+      color: Colors.white.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: Colors.white.withOpacity(0.12)),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.28),
+          color: Colors.black.withValues(alpha: 0.28),
           blurRadius: 24,
           offset: const Offset(0, 12),
         ),
@@ -1017,9 +1674,9 @@ class _MainScreenState extends State<MainScreen> {
         height: 29,
         padding: const EdgeInsets.symmetric(horizontal: 7),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.22),
+          color: Colors.black.withValues(alpha: 0.22),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.10)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
         ),
         child: Row(
           children: [
@@ -1050,9 +1707,9 @@ class _MainScreenState extends State<MainScreen> {
       height: 22,
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.32)),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1072,135 +1729,303 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  void _showPersonSelectionSheet() {
-    if (_people.isEmpty) return;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF101827),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
+  Widget _quickCopyChip(
+      String label, String value, IconData icon, Color color) {
+    final hasVal = value.trim().isNotEmpty;
+    return InkWell(
+      onTap: hasVal ? () => _copy(value, label) : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: hasVal
+              ? color.withValues(alpha: 0.12)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: hasVal
+                ? color.withValues(alpha: 0.35)
+                : Colors.white.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8, bottom: 4),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
+            Icon(icon, size: 12, color: hasVal ? color : Colors.white38),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: hasVal ? color : Colors.white38,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Danh sách người tham gia (${_people.length})',
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    'Đang chọn: #${_currentPersonIndex + 1}',
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF5EEAD4)),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: Colors.white12),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                itemCount: _people.length,
-                separatorBuilder: (_, __) =>
-                    const Divider(height: 1, color: Colors.white10),
-                itemBuilder: (context, index) {
-                  final p = _people[index];
-                  final isSelected = index == _currentPersonIndex;
-                  final hosp = (p['hospital'] ?? '').trim().isNotEmpty
-                      ? p['hospital']!.trim()
-                      : _selectedHospital;
-
-                  return ListTile(
-                    dense: true,
-                    selected: isSelected,
-                    selectedTileColor:
-                        const Color(0xFF5EEAD4).withOpacity(0.12),
-                    leading: CircleAvatar(
-                      radius: 12,
-                      backgroundColor: isSelected
-                          ? const Color(0xFF5EEAD4)
-                          : Colors.white.withOpacity(0.1),
-                      foregroundColor:
-                          isSelected ? const Color(0xFF06211D) : Colors.white70,
-                      child: Text(
-                        '${index + 1}',
-                        style: const TextStyle(
-                            fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    title: Text(
-                      p['name'] ?? '',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.w600,
-                        color:
-                            isSelected ? const Color(0xFF5EEAD4) : Colors.white,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${p['role'] ?? 'Chức danh'} • ${p['department'] == 'Khac' && (p['otherDepartment'] ?? '').trim().isNotEmpty ? 'Khác: ${p['otherDepartment']!.trim()}' : (p['department'] ?? 'Khoa')}\n$hosp',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.white.withOpacity(0.65),
-                      ),
-                    ),
-                    trailing: isSelected
-                        ? const Icon(Icons.check_circle_rounded,
-                            color: Color(0xFF5EEAD4), size: 18)
-                        : null,
-                    onTap: () {
-                      setState(() => _currentPersonIndex = index);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                },
-              ),
-            ),
+            if (hasVal) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.copy_rounded,
+                  size: 10, color: color.withValues(alpha: 0.7)),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _loadingIcon(bool loading, IconData icon) {
-    if (!loading) return Icon(icon, size: 15);
-    return const SizedBox(
-      width: 14,
-      height: 14,
-      child: CircularProgressIndicator(strokeWidth: 2),
+  Widget _buildQuickCopySection() {
+    final hasPerson = _people.isNotEmpty;
+    final current = hasPerson ? _people[_currentPersonIndex] : null;
+    final dept = current?['department'] == 'Khac'
+        ? (current?['otherDepartment'] ?? '')
+        : (current?['department'] ?? '');
+
+    return Container(
+      padding: const EdgeInsets.all(9),
+      decoration: _glassDecoration(radius: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.content_copy_rounded,
+                  size: 13, color: Color(0xFF5EEAD4)),
+              SizedBox(width: 6),
+              Text(
+                'Sao chép nhanh 1-chạm',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _quickCopyChip('Họ tên', current?['name'] ?? '',
+                  Icons.person_outline, const Color(0xFF5EEAD4)),
+              _quickCopyChip('SĐT', _currentPhoneNumber, Icons.phone_rounded,
+                  const Color(0xFF93C5FD)),
+              _quickCopyChip('OTP', _currentOtp, Icons.password_rounded,
+                  const Color(0xFFFDE047)),
+              _quickCopyChip(
+                  'BV',
+                  (current?['hospital'] ?? '').isNotEmpty
+                      ? current!['hospital']!
+                      : _selectedHospital,
+                  Icons.local_hospital_outlined,
+                  const Color(0xFF67E8F9)),
+              _quickCopyChip('Khoa', dept, Icons.domain_rounded,
+                  const Color(0xFFA7F3D0)),
+              _quickCopyChip('Chức danh', current?['role'] ?? '',
+                  Icons.badge_outlined, const Color(0xFFF0ABFC)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildControlPanel() {
-    final hasPerson = _people.isNotEmpty;
-    final current = hasPerson ? _people[_currentPersonIndex] : null;
+  Widget _buildAttendeeCard({required bool isDesktop}) {
+    if (_people.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: _glassDecoration(radius: 14),
+        child: Column(
+          children: [
+            const Icon(Icons.people_outline_rounded,
+                size: 32, color: Colors.white38),
+            const SizedBox(height: 6),
+            const Text(
+              'Chưa có dữ liệu người tham dự',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white70),
+            ),
+            const SizedBox(height: 3),
+            const Text(
+              'Bấm nút bên dưới để dán danh sách',
+              style: TextStyle(fontSize: 11, color: Colors.white38),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => _showSettingsDialog(),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Nhập danh sách ngay',
+                  style: TextStyle(
+                      fontSize: 11.5, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final current = _people[_currentPersonIndex];
+    final hosp = (current['hospital'] ?? '').trim().isNotEmpty
+        ? current['hospital']!.trim()
+        : _selectedHospital;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(10, 4, 10, 6),
-      padding: const EdgeInsets.all(7),
-      decoration: _glassDecoration(radius: 18),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF5EEAD4).withValues(alpha: 0.14),
+            const Color(0xFFF0ABFC).withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              InkWell(
+                onTap: _showPersonSelectionSheet,
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5EEAD4),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '#${_currentPersonIndex + 1}/${_people.length}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 10,
+                          color: Color(0xFF06211D),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.arrow_drop_down,
+                          size: 13, color: Color(0xFF06211D)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  current['name'] ?? '',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13.5,
+                    color: Colors.white,
+                    height: 1.15,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                tooltip: 'Điền người này vào Web (Alt+F)',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 28, minHeight: 28),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7)),
+                ),
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                onPressed: _fillCurrentPersonInWeb,
+              ),
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                tooltip: 'Người trước (Alt+P)',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 28, minHeight: 28),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7)),
+                ),
+                icon: const Icon(Icons.navigate_before_rounded),
+                onPressed: () {
+                  setState(() {
+                    _currentPersonIndex = _currentPersonIndex > 0
+                        ? _currentPersonIndex - 1
+                        : _people.length - 1;
+                  });
+                },
+              ),
+              const SizedBox(width: 4),
+              IconButton.filled(
+                tooltip: 'Người tiếp theo (Alt+N)',
+                visualDensity: VisualDensity.compact,
+                iconSize: 15,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 28, minHeight: 28),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7)),
+                ),
+                icon: const Icon(Icons.navigate_next_rounded),
+                onPressed: () {
+                  setState(() {
+                    _currentPersonIndex =
+                        _currentPersonIndex < _people.length - 1
+                            ? _currentPersonIndex + 1
+                            : 0;
+                  });
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 5,
+            runSpacing: 4,
+            children: [
+              _infoTag(
+                Icons.badge_outlined,
+                current['role'] ?? 'Chức vụ',
+                const Color(0xFFF0ABFC),
+              ),
+              _infoTag(
+                Icons.domain_rounded,
+                current['department'] == 'Khac' &&
+                        (current['otherDepartment'] ?? '').trim().isNotEmpty
+                    ? 'Khác: ${current['otherDepartment']!.trim()}'
+                    : (current['department'] ?? 'Khoa'),
+                const Color(0xFF5EEAD4),
+              ),
+              _infoTag(
+                Icons.local_hospital_rounded,
+                hosp,
+                const Color(0xFF93C5FD),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneAndOtpCard({required bool isDesktop}) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: _glassDecoration(radius: 14),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Hàng SĐT (Bấm vào SĐT là copy ngay)
+          // 1. Phone row
           Row(
             children: [
               FilledButton(
@@ -1208,8 +2033,8 @@ class _MainScreenState extends State<MainScreen> {
                     ? null
                     : _getPhoneNumber,
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size(58, 29),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  minimumSize: const Size(64, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -1218,14 +2043,14 @@ class _MainScreenState extends State<MainScreen> {
                   children: [
                     _loadingIcon(_isGettingPhone || _isLoadingService,
                         Icons.phone_android_rounded),
-                    const SizedBox(width: 3),
-                    const Text('Số',
+                    const SizedBox(width: 4),
+                    const Text('Lấy Số',
                         style: TextStyle(
-                            fontSize: 11, fontWeight: FontWeight.bold)),
+                            fontSize: 11.5, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               Expanded(
                 child: _valuePill(
                   _currentPhoneNumber,
@@ -1236,14 +2061,14 @@ class _MainScreenState extends State<MainScreen> {
                       : () => _copy(_currentPhoneNumber, 'Số điện thoại'),
                 ),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               IconButton.filledTonal(
                 tooltip: 'Điền SĐT vào Web',
                 visualDensity: VisualDensity.compact,
-                iconSize: 15,
+                iconSize: 16,
                 padding: EdgeInsets.zero,
                 constraints:
-                    const BoxConstraints(minWidth: 32, minHeight: 29),
+                    const BoxConstraints(minWidth: 34, minHeight: 32),
                 style: IconButton.styleFrom(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
@@ -1254,15 +2079,15 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          // 2. Hàng OTP (Bấm vào OTP là copy ngay)
+          const SizedBox(height: 7),
+          // 2. OTP row
           Row(
             children: [
               FilledButton(
                 onPressed: _isGettingOtp ? _cancelOtpWaiting : _getOtp,
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size(58, 29),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  minimumSize: const Size(64, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   backgroundColor:
                       _isGettingOtp ? Colors.orange.shade800 : null,
                   shape: RoundedRectangleBorder(
@@ -1272,14 +2097,14 @@ class _MainScreenState extends State<MainScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _loadingIcon(_isGettingOtp, Icons.mark_email_read_rounded),
-                    const SizedBox(width: 3),
-                    Text(_isGettingOtp ? 'Dừng' : 'OTP',
+                    const SizedBox(width: 4),
+                    Text(_isGettingOtp ? 'Dừng' : 'Lấy OTP',
                         style: const TextStyle(
-                            fontSize: 11, fontWeight: FontWeight.bold)),
+                            fontSize: 11.5, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               Expanded(
                 child: _valuePill(
                   _currentOtp,
@@ -1288,14 +2113,14 @@ class _MainScreenState extends State<MainScreen> {
                   _currentOtp.isEmpty ? null : () => _copy(_currentOtp, 'OTP'),
                 ),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               IconButton.filledTonal(
                 tooltip: 'Điền OTP vào Web',
                 visualDensity: VisualDensity.compact,
-                iconSize: 15,
+                iconSize: 16,
                 padding: EdgeInsets.zero,
                 constraints:
-                    const BoxConstraints(minWidth: 32, minHeight: 29),
+                    const BoxConstraints(minWidth: 34, minHeight: 32),
                 style: IconButton.styleFrom(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
@@ -1305,19 +2130,30 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          // 3. Hàng Bệnh viện & Nút Gửi Form Web (Tích hợp cùng 1 dòng siêu gọn)
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHospitalAndSubmitCard({required bool isDesktop}) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: _glassDecoration(radius: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Hospital selector row
           Row(
             children: [
               Expanded(
-                flex: 11,
                 child: Container(
-                  height: 29,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
+                    color: Colors.white.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1)),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
@@ -1326,10 +2162,10 @@ class _MainScreenState extends State<MainScreen> {
                           : (_hospitals.isNotEmpty ? _hospitals.first : null),
                       isExpanded: true,
                       icon: const Icon(Icons.arrow_drop_down,
-                          size: 16, color: Color(0xFF5EEAD4)),
+                          size: 18, color: Color(0xFF5EEAD4)),
                       dropdownColor: const Color(0xFF101827),
                       style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           color: Colors.white,
                           fontWeight: FontWeight.w600),
                       items: _hospitals
@@ -1348,14 +2184,14 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
               IconButton.filledTonal(
-                tooltip: 'Gán BV này cho TẤT CẢ người trong DS',
+                tooltip: 'Gán BV này cho TẤT CẢ người trong danh sách',
                 visualDensity: VisualDensity.compact,
-                iconSize: 15,
+                iconSize: 16,
                 padding: EdgeInsets.zero,
                 constraints:
-                    const BoxConstraints(minWidth: 30, minHeight: 29),
+                    const BoxConstraints(minWidth: 34, minHeight: 32),
                 style: IconButton.styleFrom(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
@@ -1365,11 +2201,37 @@ class _MainScreenState extends State<MainScreen> {
                 onPressed:
                     _people.isEmpty ? null : () => _applyHospitalToAll(),
               ),
-              const SizedBox(width: 4),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Action buttons
+          Row(
+            children: [
               Expanded(
-                flex: 8,
                 child: SizedBox(
-                  height: 29,
+                  height: 34,
+                  child: FilledButton.icon(
+                    onPressed: _people.isEmpty ? null : _fillCurrentPersonInWeb,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF5EEAD4),
+                      foregroundColor: const Color(0xFF06211D),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
+                    label: const Text(
+                      'Điền Thông Tin',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 34,
                   child: FilledButton.icon(
                     onPressed: _submitFormInWeb,
                     style: FilledButton.styleFrom(
@@ -1379,174 +2241,172 @@ class _MainScreenState extends State<MainScreen> {
                           borderRadius: BorderRadius.circular(8)),
                       padding: EdgeInsets.zero,
                     ),
-                    icon: const Icon(Icons.send_rounded, size: 12),
+                    icon: const Icon(Icons.send_rounded, size: 13),
                     label: const Text(
                       'Gửi Form',
                       style:
-                          TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5),
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          // 4. Thẻ người hiện tại (2 dòng cực kỳ gọn gàng)
-          // 4. Thẻ người hiện tại (Hiển thị trọn vẹn Tên, Chức vụ, Khoa phòng)
-          if (hasPerson)
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _showPersonSelectionSheet,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF5EEAD4).withOpacity(0.14),
-                        const Color(0xFFF0ABFC).withOpacity(0.08),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white.withOpacity(0.12)),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF5EEAD4),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '#${_currentPersonIndex + 1}/${_people.length}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 9.5,
-                                color: Color(0xFF06211D),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              current?['name'] ?? '',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12.5,
-                                color: Colors.white,
-                                height: 1.15,
-                              ),
-                              maxLines: 2,
-                              softWrap: true,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          IconButton.filledTonal(
-                            tooltip: 'Điền người này vào Web',
-                            visualDensity: VisualDensity.compact,
-                            iconSize: 15,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                                minWidth: 28, minHeight: 26),
-                            style: IconButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6)),
-                            ),
-                            icon: const Icon(Icons.auto_fix_high_rounded),
-                            onPressed: _fillCurrentPersonInWeb,
-                          ),
-                          const SizedBox(width: 4),
-                          IconButton.filled(
-                            tooltip: 'Người tiếp theo',
-                            visualDensity: VisualDensity.compact,
-                            iconSize: 15,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                                minWidth: 28, minHeight: 26),
-                            style: IconButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(6)),
-                            ),
-                            icon: const Icon(Icons.navigate_next_rounded),
-                            onPressed: () {
-                              setState(() {
-                                _currentPersonIndex =
-                                    _currentPersonIndex < _people.length - 1
-                                        ? _currentPersonIndex + 1
-                                        : 0;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _infoTag(
-                              Icons.badge_outlined,
-                              current?['role'] ?? 'Chức vụ',
-                              const Color(0xFFF0ABFC),
-                            ),
-                            const SizedBox(width: 4),
-                            _infoTag(
-                              Icons.domain_rounded,
-                              current?['department'] == 'Khac' &&
-                                      (current?['otherDepartment'] ?? '')
-                                          .trim()
-                                          .isNotEmpty
-                                  ? 'Khác: ${current!['otherDepartment']!.trim()}'
-                                  : (current?['department'] ?? 'Khoa'),
-                              const Color(0xFF5EEAD4),
-                            ),
-                            if ((current?['hospital'] ?? '')
-                                    .trim()
-                                    .isNotEmpty &&
-                                current?['hospital'] != _selectedHospital) ...[
-                              const SizedBox(width: 4),
-                              _infoTag(
-                                Icons.local_hospital_rounded,
-                                current!['hospital']!,
-                                const Color(0xFF93C5FD),
-                              ),
-                            ],
-                            const SizedBox(width: 4),
-                            Icon(Icons.touch_app_outlined,
-                                size: 11,
-                                color: Colors.white.withOpacity(0.35)),
-                          ],
-                        ),
-                      ),
-                    ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonSelectionContent(BuildContext ctx) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          margin: const EdgeInsets.only(top: 8, bottom: 4),
+          width: 36,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Danh sách người tham gia (${_people.length})',
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Đang chọn: #${_currentPersonIndex + 1}',
+                style: const TextStyle(
+                    fontSize: 12, color: Color(0xFF5EEAD4)),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: Colors.white12),
+        Flexible(
+          child: ListView.separated(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            itemCount: _people.length,
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, color: Colors.white10),
+            itemBuilder: (context, index) {
+              final p = _people[index];
+              final isSelected = index == _currentPersonIndex;
+              final hosp = (p['hospital'] ?? '').trim().isNotEmpty
+                  ? p['hospital']!.trim()
+                  : _selectedHospital;
+
+              return ListTile(
+                dense: true,
+                selected: isSelected,
+                selectedTileColor:
+                    const Color(0xFF5EEAD4).withValues(alpha: 0.12),
+                leading: CircleAvatar(
+                  radius: 12,
+                  backgroundColor: isSelected
+                      ? const Color(0xFF5EEAD4)
+                      : Colors.white.withValues(alpha: 0.1),
+                  foregroundColor:
+                      isSelected ? const Color(0xFF06211D) : Colors.white70,
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.bold),
                   ),
                 ),
-              ),
-            )
-          else
-            Container(
-              height: 30,
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Chưa có dữ liệu. Bấm icon Cài đặt ở góc trên để dán danh sách.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Colors.white70),
-              ),
-            ),
+                title: Text(
+                  p['name'] ?? '',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.w600,
+                    color:
+                        isSelected ? const Color(0xFF5EEAD4) : Colors.white,
+                  ),
+                ),
+                subtitle: Text(
+                  '${p['role'] ?? 'Chức danh'} • ${p['department'] == 'Khac' && (p['otherDepartment'] ?? '').trim().isNotEmpty ? 'Khác: ${p['otherDepartment']!.trim()}' : (p['department'] ?? 'Khoa')}\n$hosp',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.65),
+                  ),
+                ),
+                trailing: isSelected
+                    ? const Icon(Icons.check_circle_rounded,
+                        color: Color(0xFF5EEAD4), size: 18)
+                    : null,
+                onTap: () {
+                  setState(() => _currentPersonIndex = index);
+                  Navigator.pop(ctx);
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showPersonSelectionSheet() {
+    if (_people.isEmpty) return;
+    final isDesktop = MediaQuery.of(context).size.width >= 850;
+    if (isDesktop) {
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: const Color(0xFF101827),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480, maxHeight: 580),
+            child: _buildPersonSelectionContent(ctx),
+          ),
+        ),
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF101827),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: _buildPersonSelectionContent(ctx),
+        ),
+      );
+    }
+  }
+
+  Widget _loadingIcon(bool loading, IconData icon) {
+    if (!loading) return Icon(icon, size: 15);
+    return const SizedBox(
+      width: 14,
+      height: 14,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    );
+  }
+
+  Widget _buildControlPanel() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 2, 10, 6),
+      padding: const EdgeInsets.all(7),
+      decoration: _glassDecoration(radius: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildPhoneAndOtpCard(isDesktop: false),
+          const SizedBox(height: 4),
+          _buildHospitalAndSubmitCard(isDesktop: false),
+          const SizedBox(height: 4),
+          _buildAttendeeCard(isDesktop: false),
         ],
       ),
     );
@@ -1586,6 +2446,7 @@ class _MainScreenState extends State<MainScreen> {
         }
       });
       _savePreferences();
+      _fetchBalance();
     }
   }
 }
@@ -2068,13 +2929,18 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
       backgroundColor: const Color(0xFF101827),
       surfaceTintColor: const Color(0xFF5EEAD4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-      child: DefaultTabController(
-        length: 3,
-        child: Container(
-          width: double.maxFinite,
-          height: 720,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 860,
+          maxHeight: 720,
+        ),
+        child: DefaultTabController(
+          length: 3,
+          child: Container(
+            width: double.maxFinite,
+            height: 720,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -2171,8 +3037,9 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildPeopleTab() {
     return Column(

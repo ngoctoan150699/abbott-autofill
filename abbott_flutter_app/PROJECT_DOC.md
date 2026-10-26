@@ -161,57 +161,30 @@ Ví dụ quy tắc:
 
 Nếu không có quy tắc khớp, ứng dụng nên chuyển dữ liệu về dạng title case.
 
-### 3.6. Tích hợp thuê số điện thoại
+### 3.6. Tích hợp thuê số điện thoại (ViOTP API v1 - api.viotp.net)
 
-Ứng dụng cần tích hợp với một dịch vụ cho thuê số điện thoại nhận OTP. Dịch vụ hiện dùng là ViOTP.
+Ứng dụng tích hợp với hệ thống API v1 của ViOTP (`https://api.viotp.net`).
+Tất cả các request gửi qua header `Authorization: Bearer <API_TOKEN>` và `Content-Type: application/json`.
 
-Chức năng cần có:
+Chức năng:
 
-- Lưu token API.
-- Kiểm tra token hợp lệ nếu cần.
-- Lấy danh sách dịch vụ.
-- Tìm dịch vụ Abbott hoặc dịch vụ tương ứng.
-- Thuê số điện thoại cho dịch vụ đó.
-- Lưu lại số điện thoại và request ID.
-- Copy số điện thoại vào clipboard.
-- Cho phép điền số điện thoại vào form trong WebView.
+- **Lấy số dư tài khoản:** Gọi `GET https://api.viotp.net/v1/balance`. Hiển thị số dư VND trên thanh trạng thái và tự động cập nhật khi thuê số.
+- **Lấy danh sách dịch vụ:** Gọi `GET https://api.viotp.net/v1/services`. Tìm dịch vụ có tên chứa "Abbott" hoặc cho phép người dùng mở hộp thoại tìm kiếm và chọn dịch vụ thủ công / nhập Service ID.
+- **Thuê số điện thoại:** Gọi `POST https://api.viotp.net/v1/rentals` với body `{"serviceId": <id>}`. 
+  - Thành công (HTTP 201/200): Nhận về rental `id`, `phone`, `phoneLocal`, `balance`.
+  - Tự động chuẩn hóa số điện thoại (bắt đầu bằng 0), lưu `_currentRequestId`, copy vào bộ nhớ tạm (Clipboard), cập nhật số dư mới.
+  - Thất bại: Hiển thị chi tiết lỗi từ API (`detail` hoặc `code` như `insufficient_balance`, `out_of_stock`, `invalid_token`, ...).
 
-Khi thuê số thành công, ứng dụng cần hiển thị:
+### 3.7. Tích hợp lấy OTP (Polling v1)
 
-- Số điện thoại.
-- Request ID.
-- Trạng thái thuê số.
-- Thông báo copy số thành công nếu có.
+Sau khi điền số điện thoại và bấm gửi mã trên website Abbott, ứng dụng tiến hành kiểm tra OTP tự động:
 
-Nếu thuê số thất bại, ứng dụng cần hiển thị lỗi dễ hiểu, ví dụ:
-
-- Token sai.
-- Không đủ số dư.
-- Dịch vụ không còn số.
-- Không tìm thấy dịch vụ Abbott.
-- Lỗi mạng.
-
-### 3.7. Tích hợp lấy OTP
-
-Sau khi website Abbott gửi OTP về số đã thuê, ứng dụng cần gọi API để kiểm tra OTP.
-
-Chức năng cần có:
-
-- Dùng request ID của số điện thoại đã thuê.
-- Cơ chế đếm ngược chính xác: Tách riêng bộ đếm thời gian thực (`Timer.periodic` theo `DateTime.now()`) với tiến trình polling API ViOTP, đảm bảo giây đếm ngược trên ứng dụng khớp 1:1 với đồng hồ đếm ngược trên website Abbott mà không bị lệch do độ trễ mạng (Network latency).
+- **Kiểm tra OTP:** Polling `GET https://api.viotp.net/v1/rentals/{id}` theo chu kỳ ~2.5 giây.
+  - `status = 0`: Đang chờ tin nhắn OTP.
+  - `status = 1`: Hoàn thành, lấy OTP từ trường `code` (hoặc phân tích cú pháp `content`), tự động copy vào Clipboard và tự điền vào form website.
+  - `status = 2`: Phiên thuê số đã hết hạn và hệ thống đã hoàn tiền.
+- **Cơ chế đếm ngược chính xác:** Tách riêng bộ đếm thời gian thực (`Timer.periodic` theo `DateTime.now()`) với tiến trình polling API ViOTP, đảm bảo giây đếm ngược trên ứng dụng khớp 1:1 với đồng hồ đếm ngược trên website Abbott mà không bị lệch do độ trễ mạng (Network latency).
 - Cho phép cấu hình thời gian chờ OTP (60s mặc định, 90s, 120s) và cho phép bấm dừng chờ bất cứ lúc nào.
-- Nếu có OTP, lưu OTP, copy OTP và tự động điền vào form web.
-- Nếu hết thời gian, báo chưa nhận được OTP.
-- Nếu request hết hạn, báo rõ cho người dùng.
-
-Trạng thái OTP nên gồm:
-
-| Trạng thái | Ý nghĩa |
-|---|---|
-| Đang chờ | Chưa có tin nhắn OTP |
-| Đã có OTP | API đã trả về mã OTP |
-| Hết hạn | Request không còn hiệu lực |
-| Lỗi | Không gọi được API hoặc response không hợp lệ |
 
 ### 3.8. Auto-fill form
 

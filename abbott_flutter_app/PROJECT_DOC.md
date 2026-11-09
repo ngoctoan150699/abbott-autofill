@@ -307,30 +307,35 @@ Tọa độ này nên được thiết kế để có thể đổi trong tương
 
 ---
 
-## 4. Quy trình sử dụng đề xuất
+## 4. Quy trình vận hành chuẩn thực tế (SOP Vòng lặp)
 
-Quy trình người dùng cuối:
+Quy trình thực tế của website sự kiện Abbott chia làm 2 giai đoạn: **Xác thực số điện thoại OTP trước**, sau đó mới vào **Form điền thông tin người tham gia**.
 
-1. Mở ứng dụng.
-2. Nhập hoặc kiểm tra URL website Abbott.
-3. Bấm mở website trong WebView.
-4. Mở cài đặt.
-5. Nhập ViOTP token.
-6. Nhập danh sách người tham dự.
-7. Lưu cài đặt.
-8. Chọn người tham dự đầu tiên.
-9. Bấm điền thông tin người tham dự vào form.
-10. Kiểm tra các trường đã điền trên website.
-11. Bấm thuê số điện thoại.
-12. Điền hoặc copy số điện thoại vào form.
-13. Thao tác trên website để yêu cầu gửi OTP.
-14. Bấm lấy OTP trong ứng dụng.
-15. Chờ ứng dụng nhận OTP.
-16. Ứng dụng copy và điền OTP nếu có thể.
-17. Người dùng kiểm tra lại form.
-18. Người dùng tự bấm gửi/submit.
-19. Đánh dấu người hiện tại là đã hoàn tất nếu cần.
-20. Chuyển sang người tiếp theo.
+Quy trình chuẩn từng bước:
+
+1. **Thiết lập ban đầu (Cài đặt):**
+   - Nhập Token ViOTP và/hoặc API Key HupSMS.
+   - Nhập Profile danh sách Bệnh viện & chọn bệnh viện mặc định.
+   - Nhập danh sách người tham gia theo định dạng: `Họ tên - Khoa/Phòng - Chức danh [- Bệnh viện]`.
+   - Bấm **Lưu Thay Đổi**.
+2. **Mở link sự kiện:** Dán URL website sự kiện Abbott vào thanh địa chỉ và bấm mở trong WebView.
+3. **Thuê số điện thoại:** Bấm `[ Lấy Số ]` -> Hệ thống gọi API thuê số mới, tự động chuẩn hóa dạng `0xxxxxxxxx` và sao chép vào Clipboard.
+4. **Dán SĐT & Gửi mã:** Dán số vào ô SĐT trên website Abbott và bấm nút gửi mã trên web.
+5. **Đếm ngược & Nhận OTP (Quy tắc 60 giây):**
+   - Ứng dụng tự động đếm ngược 60 giây và polling kiểm tra OTP.
+   - *Lưu ý:* Website Abbott chỉ cho phép nhận OTP trong 60s. Sau 60s mã chắc chắn không về nữa. Ứng dụng sẽ tự động hết hạn, gọi API hủy đơn hoàn tiền (với HupSMS) và người dùng bấm lấy số khác để thử lại.
+6. **Xác thực OTP:** Khi có OTP, ứng dụng tự động copy mã vào Clipboard. Người dùng dán vào ô OTP trên web và bấm **Xác thực / Tiếp tục** để vào trang điền form thông tin.
+7. **Tự động điền Form:**
+   - Đảm bảo thẻ người tham gia đang chọn đúng người (ví dụ `#1/N Họ và tên`).
+   - Bấm nút `[ Điền Thông Tin ]` (hoặc bấm phím tắt `Alt + F` trên Windows).
+   - Hệ thống inject JavaScript điền Họ tên, chọn Khoa/Phòng ban (hoặc điền Phòng ban Khác), Chức danh, Bệnh viện và tích chọn Checkbox Đồng ý điều khoản.
+8. **Kiểm tra & Gửi form:** Người dùng kiểm tra nhanh các trường và bấm nút gửi trên web để hoàn tất đăng ký cho người hiện tại.
+9. **Chuyển người tiếp theo & Lặp lại:**
+   - Bấm nút Back (`Alt + ←`) để quay lại trang nhập SĐT ban đầu.
+   - Bấm nút `>` (`Alt + N`) để chuyển sang người tham dự tiếp theo trong danh sách.
+   - Lặp lại từ **Bước 3** cho đến khi hoàn thành toàn bộ danh sách.
+
+*(Xem tài liệu hướng dẫn chi tiết tại [USER_GUIDE.md](USER_GUIDE.md))*
 
 ---
 

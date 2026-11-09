@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:io' show Platform, Process;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_windows/webview_windows.dart' as win_web;
 
 import 'app_preferences.dart';
+import 'otp_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -75,13 +75,37 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final TextEditingController _urlController = TextEditingController();
-  final TextEditingController _tokenController = TextEditingController();
+
+  OtpProviderType _otpProvider = OtpProviderType.viotp;
+  final TextEditingController _viotpTokenController = TextEditingController();
+  final TextEditingController _hupsmsTokenController = TextEditingController();
+
+  int? _viotpServiceId;
+  int? _hupsmsServiceId;
+
+  String _viotpBalance = '';
+  String _hupsmsBalance = '';
+
+  String get _activeProviderName => _otpProvider.displayName;
+  String get _activeBalance => _otpProvider == OtpProviderType.hupsms ? _hupsmsBalance : _viotpBalance;
+  String get _activeToken => _otpProvider == OtpProviderType.hupsms
+      ? _hupsmsTokenController.text.trim()
+      : _viotpTokenController.text.trim();
+  int? get _activeServiceId => _otpProvider == OtpProviderType.hupsms
+      ? _hupsmsServiceId
+      : _viotpServiceId;
+  set _activeServiceId(int? id) {
+    if (_otpProvider == OtpProviderType.hupsms) {
+      _hupsmsServiceId = id;
+    } else {
+      _viotpServiceId = id;
+    }
+  }
 
   WebViewController? _webViewController;
   win_web.WebviewController? _windowsWebviewController;
   bool _isWindowsWebviewInitialized = false;
   bool _isPageLoading = false;
-  String _viotpBalance = '';
   bool _isLoadingBalance = false;
   final FocusNode _urlFocusNode = FocusNode();
 
@@ -92,7 +116,6 @@ class _MainScreenState extends State<MainScreen> {
   Timer? _otpTimer;
   int _otpTimeoutSeconds = 60;
 
-  int? _abbottServiceId;
   String _currentPhoneNumber = '';
   String _currentRequestId = '';
   String _currentOtp = '';
@@ -231,7 +254,8 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _cancelOtpTimer();
     _urlController.dispose();
-    _tokenController.dispose();
+    _viotpTokenController.dispose();
+    _hupsmsTokenController.dispose();
     _urlFocusNode.dispose();
     _windowsWebviewController?.dispose();
     super.dispose();
@@ -244,6 +268,10 @@ class _MainScreenState extends State<MainScreen> {
 
   void _cancelOtpWaiting() {
     _cancelOtpTimer();
+    final orderId = _currentRequestId;
+    final provider = _otpProvider;
+    final token = _activeToken;
+
     if (mounted) {
       setState(() {
         _isGettingOtp = false;
@@ -252,12 +280,24 @@ class _MainScreenState extends State<MainScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đã dừng chờ OTP.')),
       );
+
+      // Nếu là HupSMS, tự động gửi yêu cầu hủy đơn để hoàn tiền nhanh
+      if (provider == OtpProviderType.hupsms && orderId.isNotEmpty && token.isNotEmpty) {
+        OtpService.cancelRental(provider: provider, token: token, orderId: orderId).then((refunded) {
+          if (refunded && mounted) {
+            _fetchBalance();
+          }
+        }).catchError((_) {});
+      }
     }
   }
 
   Future<void> _loadPreferences() async {
-    final token = await AppPreferences.getString('viotp_token');
-    final savedServiceId = await AppPreferences.getString('viotp_service_id');
+    final viotpToken = await AppPreferences.getString('viotp_token');
+    final hupsmsToken = await AppPreferences.getString('hupsms_token');
+    final selectedProvider = await AppPreferences.getString('selected_otp_provider');
+    final savedViotpServiceId = await AppPreferences.getString('viotp_service_id');
+    final savedHupsmsServiceId = await AppPreferences.getString('hupsms_service_id');
     final lastUrl = await AppPreferences.getString('last_url');
     final peopleData = await AppPreferences.getString('people_data');
     final fillSettings = await AppPreferences.getString('fill_settings');
@@ -266,13 +306,20 @@ class _MainScreenState extends State<MainScreen> {
     final otpTimeoutStr = await AppPreferences.getString('otp_timeout_seconds');
 
     setState(() {
-      if (token != null && token != 'de6faac93d8d4f3294070fe48a11224b') {
-        _tokenController.text = token;
+      _otpProvider = OtpProviderType.fromString(selectedProvider);
+
+      if (viotpToken != null && viotpToken != 'de6faac93d8d4f3294070fe48a11224b') {
+        _viotpTokenController.text = viotpToken;
       } else {
-        _tokenController.text = '';
+        _viotpTokenController.text = '';
       }
-      if (savedServiceId != null && int.tryParse(savedServiceId) != null) {
-        _abbottServiceId = int.parse(savedServiceId);
+      _hupsmsTokenController.text = hupsmsToken ?? '';
+
+      if (savedViotpServiceId != null && int.tryParse(savedViotpServiceId) != null) {
+        _viotpServiceId = int.parse(savedViotpServiceId);
+      }
+      if (savedHupsmsServiceId != null && int.tryParse(savedHupsmsServiceId) != null) {
+        _hupsmsServiceId = int.parse(savedHupsmsServiceId);
       }
       _urlController.text = lastUrl ?? '';
 
@@ -354,10 +401,16 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _savePreferences() async {
-    await AppPreferences.setString('viotp_token', _tokenController.text);
-    if (_abbottServiceId != null) {
+    await AppPreferences.setString('selected_otp_provider', _otpProvider.id);
+    await AppPreferences.setString('viotp_token', _viotpTokenController.text);
+    if (_viotpServiceId != null) {
       await AppPreferences.setString(
-          'viotp_service_id', _abbottServiceId.toString());
+          'viotp_service_id', _viotpServiceId.toString());
+    }
+    await AppPreferences.setString('hupsms_token', _hupsmsTokenController.text);
+    if (_hupsmsServiceId != null) {
+      await AppPreferences.setString(
+          'hupsms_service_id', _hupsmsServiceId.toString());
     }
     await AppPreferences.setString('last_url', _urlController.text);
     await AppPreferences.setString('hospital_list', jsonEncode(_hospitals));
@@ -488,63 +541,59 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Map<String, String> _viotpHeaders(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      };
+  void _switchOtpProvider(OtpProviderType newProvider) {
+    if (_otpProvider == newProvider) return;
+    setState(() {
+      _otpProvider = newProvider;
+      _currentPhoneNumber = '';
+      _currentRequestId = '';
+      _currentOtp = '';
+      _otpStatusText = '';
+      _isGettingOtp = false;
+      _isGettingPhone = false;
+    });
+    _cancelOtpTimer();
+    AppPreferences.setString('selected_otp_provider', newProvider.id);
+    _fetchBalance();
+  }
 
   Future<void> _fetchBalance({bool showFeedback = false}) async {
-    final token = _tokenController.text.trim();
+    final token = _activeToken;
+    final provider = _otpProvider;
+    final providerName = _activeProviderName;
+
     if (token.isEmpty) {
       if (showFeedback && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Vui lòng nhập ViOTP token trong Cài đặt!')),
+          SnackBar(
+              content: Text('Vui lòng nhập Token/API key của $providerName trong Cài đặt!')),
         );
       }
       return;
     }
     setState(() => _isLoadingBalance = true);
     try {
-      final url = Uri.parse('https://api.viotp.net/v1/balance');
-      final res = await http
-          .get(url, headers: _viotpHeaders(token))
-          .timeout(const Duration(seconds: 7));
-      if (res.statusCode == 200) {
-        final json = jsonDecode(res.body);
-        if (json is Map && json['balance'] != null) {
-          final bal = json['balance'];
-          final balNum =
-              (bal is num) ? bal.toInt() : int.tryParse(bal.toString()) ?? 0;
-          final formatted = '${_formatCurrency(balNum)} đ';
-          if (mounted) {
-            setState(() {
-              _viotpBalance = formatted;
-            });
-            if (showFeedback) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Số dư ViOTP: $formatted')),
-              );
-            }
+      final balNum = await OtpService.fetchBalance(provider: provider, token: token);
+      final formatted = '${_formatCurrency(balNum)} đ';
+      if (mounted) {
+        setState(() {
+          if (provider == OtpProviderType.hupsms) {
+            _hupsmsBalance = formatted;
+          } else {
+            _viotpBalance = formatted;
           }
-        }
-      } else {
-        final json = jsonDecode(res.body);
-        final detail = (json is Map && json['detail'] != null)
-            ? json['detail']
-            : (json is Map && json['code'] != null
-                ? json['code']
-                : 'HTTP ${res.statusCode}');
-        if (mounted && showFeedback) {
+        });
+        if (showFeedback) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lỗi lấy số dư: $detail')),
+            SnackBar(content: Text('Số dư $providerName: $formatted')),
           );
         }
       }
     } catch (e) {
       if (mounted && showFeedback) {
+        final err = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi kết nối ViOTP: $e')),
+          SnackBar(content: Text('Lỗi số dư $providerName: $err')),
         );
       }
     } finally {
@@ -561,13 +610,16 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Future<bool> _fetchServiceId({bool showMessage = true}) async {
-    final token = _tokenController.text.trim();
+  Future<bool> _fetchServiceId({bool showMessage = true, bool forcePicker = false}) async {
+    final token = _activeToken;
+    final provider = _otpProvider;
+    final providerName = _activeProviderName;
+
     if (token.isEmpty) {
       if (mounted && showMessage) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Vui lòng nhập ViOTP token trong Cài đặt!')),
+          SnackBar(
+              content: Text('Vui lòng nhập Token/API key của $providerName trong Cài đặt!')),
         );
       }
       return false;
@@ -576,79 +628,53 @@ class _MainScreenState extends State<MainScreen> {
       _isLoadingService = true;
     });
     try {
-      final url = Uri.parse('https://api.viotp.net/v1/services');
-      final response = await http
-          .get(url, headers: _viotpHeaders(token))
-          .timeout(const Duration(seconds: 8));
+      final serviceList = await OtpService.fetchServices(provider: provider, token: token);
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is! List) {
-          if (!mounted) return false;
-          if (showMessage) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Dữ liệu dịch vụ ViOTP không hợp lệ!')),
-            );
-          }
-          return false;
-        }
-
-        Map? service;
-        for (final item in data) {
-          if (item is Map &&
-              (item['name'] ?? '')
-                  .toString()
-                  .toLowerCase()
-                  .contains('abbott')) {
-            service = item;
-            break;
-          }
-        }
-
-        final serviceId = int.tryParse((service?['id'] ?? '').toString());
-        if (serviceId != null) {
-          _abbottServiceId = serviceId;
-          final name = service?['name'] ?? 'Abbott';
-          final price = service?['price'];
-          final priceStr = price != null
-              ? ' - ${_formatCurrency(int.tryParse(price.toString()) ?? 0)} đ'
-              : '';
-          await AppPreferences.setString(
-              'viotp_service_id', serviceId.toString());
-          if (!mounted) return true;
-          if (showMessage) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(
-                    'Tìm thấy dịch vụ: $name (ID: $_abbottServiceId$priceStr)')));
-          }
-          return true;
-        } else {
-          if (!mounted) return false;
-          if (showMessage) {
-            _showServicePickerDialog(data);
-          }
-          return false;
-        }
-      } else {
-        final json = jsonDecode(response.body);
-        final detail = (json is Map && json['detail'] != null)
-            ? json['detail']
-            : (json is Map && json['code'] != null
-                ? json['code']
-                : 'HTTP ${response.statusCode}');
+      if (serviceList.isEmpty) {
         if (!mounted) return false;
         if (showMessage) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text("Lỗi ViOTP: $detail")));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Danh sách dịch vụ $providerName trống hoặc không tải được!')),
+          );
         }
         return false;
+      }
+
+      final abbottMatches = serviceList
+          .where((item) => item.name.toLowerCase().contains('abbott'))
+          .toList();
+      // Sắp xếp các server Abbott theo giá tăng dần (rẻ nhất lên đầu)
+      abbottMatches.sort((a, b) => a.price.compareTo(b.price));
+
+      if (!forcePicker && abbottMatches.length == 1) {
+        final abbott = abbottMatches.first;
+        _activeServiceId = abbott.id;
+        final name = abbott.displayName;
+        final priceStr = abbott.price > 0 ? ' - ${_formatCurrency(abbott.price)} đ' : '';
+        final key = provider == OtpProviderType.hupsms ? 'hupsms_service_id' : 'viotp_service_id';
+        await AppPreferences.setString(key, abbott.id.toString());
+        if (!mounted) return true;
+        if (showMessage) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  '[$providerName] Tìm thấy dịch vụ: $name (ID: ${abbott.id}$priceStr)')));
+        }
+        return true;
+      } else {
+        if (!mounted) return false;
+        _showServicePickerDialog(
+          serviceList,
+          initialQuery: abbottMatches.isNotEmpty ? 'abbott' : '',
+        );
+        return true;
       }
     } catch (e) {
       if (!mounted) return false;
       if (showMessage) {
+        final err = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Lỗi kết nối ViOTP: $e')));
+            .showSnackBar(SnackBar(content: Text('Lỗi tải dịch vụ $providerName: $err')));
       }
       return false;
     } finally {
@@ -660,32 +686,60 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _showServicePickerDialog(List<dynamic> services) {
+  void _showServicePickerDialog(List<OtpServiceItem> services, {String initialQuery = ''}) {
+    final providerName = _activeProviderName;
+    final provider = _otpProvider;
     showDialog(
       context: context,
       builder: (ctx) {
-        String query = '';
+        String query = initialQuery;
+        final searchController = TextEditingController(text: initialQuery);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final filtered = services.where((item) {
-              if (item is! Map) return false;
-              final name = (item['name'] ?? '').toString().toLowerCase();
-              return name.contains(query.toLowerCase());
+              final q = query.toLowerCase().trim();
+              if (q.isEmpty) return true;
+              return item.name.toLowerCase().contains(q) ||
+                  (item.server?.toLowerCase().contains(q) ?? false) ||
+                  item.id.toString().contains(q);
             }).toList();
+
+            // Nếu tìm 'abbott', sắp xếp giá tăng dần
+            if (query.toLowerCase().contains('abbott')) {
+              filtered.sort((a, b) => a.price.compareTo(b.price));
+            }
 
             return AlertDialog(
               backgroundColor: const Color(0xFF1E293B),
-              title: const Text('Chọn dịch vụ ViOTP',
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.dns_rounded, color: Color(0xFF5EEAD4), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Chọn Server / Dịch vụ $providerName',
+                        style: const TextStyle(color: Colors.white, fontSize: 15)),
+                  ),
+                ],
+              ),
               content: SizedBox(
-                width: 400,
-                height: 450,
+                width: 440,
+                height: 480,
                 child: Column(
                   children: [
                     TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Tìm kiếm dịch vụ...',
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: query.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  searchController.clear();
+                                  setDialogState(() => query = '');
+                                },
+                              )
+                            : null,
+                        hintText: 'Tìm dịch vụ / server (vd: abbott, 247, 2, 3)...',
                         isDense: true,
                       ),
                       onChanged: (val) => setDialogState(() => query = val),
@@ -697,40 +751,88 @@ class _MainScreenState extends State<MainScreen> {
                               child: Text('Không tìm thấy dịch vụ nào phù hợp',
                                   style: TextStyle(color: Colors.white54)),
                             )
-                          : ListView.builder(
+                          : ListView.separated(
                               itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1, color: Colors.white10),
                               itemBuilder: (context, i) {
-                                final s = filtered[i] as Map;
-                                final id = s['id'];
-                                final name = s['name'] ?? 'Dịch vụ $id';
-                                final price = s['price'] != null
-                                    ? '${_formatCurrency(int.tryParse(s['price'].toString()) ?? 0)} đ'
-                                    : '';
+                                final s = filtered[i];
+                                final price = s.price > 0 ? '${_formatCurrency(s.price)} đ' : '';
+                                final isSelected = s.id == _activeServiceId;
+                                final isCheapest = i == 0 &&
+                                    query.toLowerCase().contains('abbott') &&
+                                    filtered.length > 1;
+
                                 return ListTile(
                                   dense: true,
-                                  title: Text(name,
-                                      style:
-                                          const TextStyle(color: Colors.white)),
-                                  subtitle: Text('ID: $id | Giá: $price',
-                                      style: const TextStyle(
-                                          color: Color(0xFF5EEAD4),
-                                          fontSize: 12)),
-                                  trailing: const Icon(Icons.chevron_right,
-                                      color: Colors.white54),
+                                  selected: isSelected,
+                                  selectedTileColor: const Color(0xFF5EEAD4).withValues(alpha: 0.1),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          s.displayName,
+                                          style: TextStyle(
+                                            color: isSelected ? const Color(0xFF5EEAD4) : Colors.white,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isCheapest)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.withValues(alpha: 0.2),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+                                          ),
+                                          child: const Text('RẺ NHẤT',
+                                              style: TextStyle(
+                                                  color: Colors.amber,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold)),
+                                        ),
+                                    ],
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      Text('ID: ${s.id}',
+                                          style: const TextStyle(
+                                              color: Colors.white54, fontSize: 11)),
+                                      if (price.isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text('Giá: $price',
+                                            style: const TextStyle(
+                                                color: Color(0xFF5EEAD4),
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11)),
+                                      ],
+                                      if (s.server != null && s.server!.isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text('(${s.server})',
+                                            style: const TextStyle(
+                                                color: Color(0xFFF0ABFC), fontSize: 11)),
+                                      ],
+                                    ],
+                                  ),
+                                  trailing: isSelected
+                                      ? const Icon(Icons.check_circle_rounded,
+                                          color: Color(0xFF5EEAD4), size: 20)
+                                      : const Icon(Icons.chevron_right,
+                                          color: Colors.white38, size: 18),
                                   onTap: () {
-                                    final sId = int.tryParse(id.toString());
-                                    if (sId != null) {
-                                      setState(() {
-                                        _abbottServiceId = sId;
-                                      });
-                                      AppPreferences.setString(
-                                          'viotp_service_id', sId.toString());
-                                      Navigator.pop(ctx);
-                                      ScaffoldMessenger.of(this.context)
-                                          .showSnackBar(SnackBar(
-                                              content: Text(
-                                                  'Đã chọn dịch vụ: $name (ID: $sId - $price)')));
-                                    }
+                                    setState(() {
+                                      _activeServiceId = s.id;
+                                    });
+                                    final key = provider == OtpProviderType.hupsms
+                                        ? 'hupsms_service_id'
+                                        : 'viotp_service_id';
+                                    AppPreferences.setString(key, s.id.toString());
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(this.context)
+                                        .showSnackBar(SnackBar(
+                                            content: Text(
+                                                '[$providerName] Đã chọn: ${s.displayName} (ID: ${s.id}${price.isNotEmpty ? ' - $price' : ''})')));
                                   },
                                 );
                               },
@@ -753,18 +855,21 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _getPhoneNumber() async {
-    final token = _tokenController.text.trim();
+    final token = _activeToken;
+    final provider = _otpProvider;
+    final providerName = _activeProviderName;
+
     if (token.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Vui lòng nhập ViOTP token trong Cài đặt!')),
+        SnackBar(
+            content: Text('Vui lòng nhập Token/API key của $providerName trong Cài đặt!')),
       );
       return;
     }
 
-    if (_abbottServiceId == null) {
+    if (_activeServiceId == null) {
       final ok = await _fetchServiceId();
-      if (!ok || _abbottServiceId == null) return;
+      if (!ok || _activeServiceId == null) return;
     }
 
     _cancelOtpTimer();
@@ -779,55 +884,32 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     try {
-      final url = Uri.parse('https://api.viotp.net/v1/rentals');
-      final response = await http
-          .post(
-            url,
-            headers: _viotpHeaders(token),
-            body: jsonEncode({
-              'serviceId': _abbottServiceId,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
+      final result = await OtpService.rentPhone(
+        provider: provider,
+        token: token,
+        serviceId: _activeServiceId!,
+      );
 
-      final json = jsonDecode(response.body);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        String phone = (json['phone'] ?? '').toString();
-        final phoneLocal = (json['phoneLocal'] ?? '').toString();
-        if (phone.isEmpty && phoneLocal.isNotEmpty) {
-          phone = '0$phoneLocal';
-        } else if (phone.isNotEmpty && !phone.startsWith('0')) {
-          phone = '0$phone';
-        }
-
-        final rentalId = json['id'].toString();
-        setState(() {
-          _currentPhoneNumber = phone;
-          _currentRequestId = rentalId;
-          if (json['balance'] != null) {
-            final balNum = int.tryParse(json['balance'].toString());
-            if (balNum != null) {
-              _viotpBalance = '${_formatCurrency(balNum)} đ';
-            }
+      setState(() {
+        _currentPhoneNumber = result.phone;
+        _currentRequestId = result.orderId;
+        if (result.balance != null) {
+          final formatted = '${_formatCurrency(result.balance!)} đ';
+          if (provider == OtpProviderType.hupsms) {
+            _hupsmsBalance = formatted;
+          } else {
+            _viotpBalance = formatted;
           }
-        });
-        Clipboard.setData(ClipboardData(text: _currentPhoneNumber));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Đã thuê số: $_currentPhoneNumber và copy vào bộ nhớ tạm!')));
-      } else {
-        final detail = (json is Map && json['detail'] != null)
-            ? json['detail']
-            : (json is Map && json['code'] != null
-                ? json['code']
-                : 'HTTP ${response.statusCode}');
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Lỗi thuê số: $detail")));
-      }
+        }
+      });
+      Clipboard.setData(ClipboardData(text: _currentPhoneNumber));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '[$providerName] Đã thuê số: $_currentPhoneNumber và copy vào bộ nhớ tạm!')));
     } catch (e) {
+      final err = e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Lỗi kết nối ViOTP: $e')));
+          .showSnackBar(SnackBar(content: Text('Lỗi thuê số ($providerName): $err')));
     } finally {
       if (mounted) {
         setState(() {
@@ -844,11 +926,14 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    final token = _tokenController.text.trim();
+    final token = _activeToken;
+    final provider = _otpProvider;
+    final providerName = _activeProviderName;
+
     if (token.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Vui lòng nhập ViOTP token trong Cài đặt!')),
+        SnackBar(
+            content: Text('Vui lòng nhập Token/API key của $providerName trong Cài đặt!')),
       );
       return;
     }
@@ -861,7 +946,7 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       _isGettingOtp = true;
       _currentOtp = '';
-      _otpStatusText = 'Đang chờ OTP... ${_otpTimeoutSeconds}s';
+      _otpStatusText = 'Đang chờ OTP ($providerName)... ${_otpTimeoutSeconds}s';
     });
 
     // 1. Timer chạy trên UI isolate: đếm đúng từng giây theo DateTime thật
@@ -889,91 +974,55 @@ class _MainScreenState extends State<MainScreen> {
       }
     });
 
-    // 2. Polling ViOTP v1 API song song: GET /v1/rentals/{id}
+    // 2. Polling API song song
     try {
       while (_isGettingOtp && DateTime.now().isBefore(expireAt)) {
         if (!mounted) break;
 
-        final url = Uri.parse(
-            'https://api.viotp.net/v1/rentals/$_currentRequestId');
-
         try {
-          final response = await http
-              .get(url, headers: _viotpHeaders(token))
-              .timeout(const Duration(seconds: 4));
+          final result = await OtpService.checkOtp(
+            provider: provider,
+            token: token,
+            orderId: _currentRequestId,
+          );
 
           if (!mounted || !_isGettingOtp) break;
 
-          if (response.statusCode == 200) {
-            final json = jsonDecode(response.body);
-            if (json is Map) {
-              final status = json['status'];
-              if (status == 1) {
-                // status 1: Hoàn thành, đã có mã
-                String otp = (json['code'] ?? '').toString().trim();
-                if (otp.isEmpty && json['content'] != null) {
-                  final match = RegExp(r'\b\d{4,8}\b')
-                      .firstMatch(json['content'].toString());
-                  if (match != null) otp = match.group(0)!;
-                }
-
-                _cancelOtpTimer();
-                if (mounted) {
-                  setState(() {
-                    _isGettingOtp = false;
-                    _currentOtp = otp;
-                    _otpStatusText = 'Đã có OTP: $otp';
-                  });
-                  Clipboard.setData(ClipboardData(text: otp));
-                  await _fillOtpInWeb();
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Đã nhận, copy và tự điền OTP ($otp)!')));
-                }
-                return;
-              } else if (status == 2) {
-                // status 2: Hết hạn, đã hoàn tiền
-                _cancelOtpTimer();
-                if (mounted) {
-                  setState(() {
-                    _isGettingOtp = false;
-                    _otpStatusText = 'Phiên hết hạn/hoàn tiền';
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content:
-                          Text('Phiên ViOTP đã hết hạn và hoàn lại tiền!')));
-                }
-                return;
-              }
-              // status 0: Đang đợi tin nhắn OTP, tiếp tục loop
+          if (result.status == OtpCheckStatus.success && result.otp != null && result.otp!.isNotEmpty) {
+            _cancelOtpTimer();
+            if (mounted) {
+              setState(() {
+                _isGettingOtp = false;
+                _currentOtp = result.otp!;
+                _otpStatusText = 'Đã có OTP: ${result.otp}';
+              });
+              Clipboard.setData(ClipboardData(text: result.otp!));
+              await _fillOtpInWeb();
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Đã nhận, copy và tự điền OTP (${result.otp})!')));
             }
-          } else {
-            final json = jsonDecode(response.body);
-            final detail = (json is Map && json['detail'] != null)
-                ? json['detail']
-                : (json is Map && json['code'] != null
-                    ? json['code']
-                    : 'HTTP ${response.statusCode}');
-            if (response.statusCode == 401 || response.statusCode == 404) {
-              _cancelOtpTimer();
-              if (mounted) {
-                setState(() {
-                  _isGettingOtp = false;
-                  _otpStatusText = 'Lỗi: $detail';
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Lỗi kiểm tra OTP: $detail')));
-              }
-              return;
+            return;
+          } else if (result.status == OtpCheckStatus.expired || result.status == OtpCheckStatus.cancelled) {
+            _cancelOtpTimer();
+            if (mounted) {
+              setState(() {
+                _isGettingOtp = false;
+                _otpStatusText = result.status == OtpCheckStatus.cancelled
+                    ? 'Phiên đã bị hủy'
+                    : 'Phiên hết hạn/hoàn tiền';
+              });
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Phiên $providerName đã kết thúc hoặc hoàn tiền!')));
             }
-            debugPrint(
-                'Lỗi tạm thời khi poll OTP (${response.statusCode}): $detail');
+            return;
+          } else if (result.status == OtpCheckStatus.error && result.error != null) {
+            debugPrint('Lỗi tạm thời khi poll OTP ($providerName): ${result.error}');
           }
         } catch (e) {
-          // Bỏ qua lỗi timeout kết nối đơn lẻ trong lúc polling
-          debugPrint('Lỗi tạm thời khi poll OTP: $e');
+          debugPrint('Lỗi kết nối khi poll OTP ($providerName): $e');
         }
 
-        // Chờ 2.5 giây giữa mỗi lần check ViOTP
+        // Chờ 2.5 giây giữa mỗi lần check
         await Future.delayed(const Duration(milliseconds: 2500));
       }
     } catch (e) {
@@ -1432,17 +1481,20 @@ class _MainScreenState extends State<MainScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isDesktop = constraints.maxWidth >= 850;
-          return Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF07111F), Color(0xFF102033), Color(0xFF08111E)],
+          return Material(
+            type: MaterialType.transparency,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF07111F), Color(0xFF102033), Color(0xFF08111E)],
+                ),
               ),
+              child: isDesktop
+                  ? _buildDesktopLayout()
+                  : SafeArea(child: _buildMobileLayout()),
             ),
-            child: isDesktop
-                ? _buildDesktopLayout()
-                : SafeArea(child: _buildMobileLayout()),
           );
         },
       ),
@@ -1450,8 +1502,10 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildDesktopLayout() {
-    return Row(
-      children: [
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Row(
+        children: [
         // Sidebar (400px)
         Container(
           width: 400,
@@ -1511,8 +1565,9 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildDesktopSidebarHeader() {
     return Container(
@@ -1586,7 +1641,7 @@ class _MainScreenState extends State<MainScreen> {
                         size: 12, color: Color(0xFF5EEAD4)),
                   const SizedBox(width: 4),
                   Text(
-                    _viotpBalance.isNotEmpty ? _viotpBalance : 'Số dư ViOTP',
+                    _activeBalance.isNotEmpty ? '$_activeProviderName: $_activeBalance' : 'Số dư $_activeProviderName',
                     style: const TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.bold,
@@ -1731,7 +1786,7 @@ class _MainScreenState extends State<MainScreen> {
               fontWeight: FontWeight.w800, letterSpacing: .2, fontSize: 16),
         ),
         actions: [
-          if (_viotpBalance.isNotEmpty)
+          if (_activeBalance.isNotEmpty)
             InkWell(
               onTap: () => _fetchBalance(showFeedback: true),
               borderRadius: BorderRadius.circular(8),
@@ -1745,7 +1800,7 @@ class _MainScreenState extends State<MainScreen> {
                       color: const Color(0xFF5EEAD4).withValues(alpha: 0.3)),
                 ),
                 child: Text(
-                  _viotpBalance,
+                  '$_activeProviderName: $_activeBalance',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
@@ -2272,6 +2327,126 @@ class _MainScreenState extends State<MainScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 0. Provider switcher header
+          Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(
+              children: [
+                const Text(
+                  'Nguồn OTP:',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => _switchOtpProvider(OtpProviderType.viotp),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _otpProvider == OtpProviderType.viotp
+                          ? const Color(0xFF5EEAD4).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _otpProvider == OtpProviderType.viotp
+                            ? const Color(0xFF5EEAD4)
+                            : Colors.white.withValues(alpha: 0.1),
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      'ViOTP',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: _otpProvider == OtpProviderType.viotp ? FontWeight.bold : FontWeight.normal,
+                        color: _otpProvider == OtpProviderType.viotp ? const Color(0xFF5EEAD4) : Colors.white60,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () => _switchOtpProvider(OtpProviderType.hupsms),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _otpProvider == OtpProviderType.hupsms
+                          ? const Color(0xFF5EEAD4).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _otpProvider == OtpProviderType.hupsms
+                            ? const Color(0xFF5EEAD4)
+                            : Colors.white.withValues(alpha: 0.1),
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      'HupSMS',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: _otpProvider == OtpProviderType.hupsms ? FontWeight.bold : FontWeight.normal,
+                        color: _otpProvider == OtpProviderType.hupsms ? const Color(0xFF5EEAD4) : Colors.white60,
+                      ),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: () => _fetchServiceId(showMessage: true, forcePicker: true),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: _activeServiceId != null
+                          ? const Color(0xFF5EEAD4).withValues(alpha: 0.12)
+                          : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _activeServiceId != null
+                            ? const Color(0xFF5EEAD4).withValues(alpha: 0.35)
+                            : Colors.white.withValues(alpha: 0.1),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.dns_rounded,
+                          size: 11,
+                          color: _activeServiceId != null
+                              ? const Color(0xFF5EEAD4)
+                              : Colors.white60,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _activeServiceId != null
+                              ? 'Server ID: $_activeServiceId'
+                              : 'Chọn Server',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: _activeServiceId != null
+                                ? const Color(0xFF5EEAD4)
+                                : Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.arrow_drop_down,
+                            size: 13, color: Colors.white54),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           // 1. Phone row
           Row(
             children: [
@@ -2665,13 +2840,16 @@ class _MainScreenState extends State<MainScreen> {
       barrierDismissible: false,
       builder: (context) => PeopleEditorDialog(
         initialPeople: _people,
-        tokenController: _tokenController,
+        viotpTokenController: _viotpTokenController,
+        hupsmsTokenController: _hupsmsTokenController,
+        initialOtpProvider: _otpProvider,
         initialEnabled: _fillEnabled,
         initialDelays: _fillDelayMs,
         initialHospitals: _hospitals,
         initialSelectedHospital: _selectedHospital,
         initialOtpTimeout: _otpTimeoutSeconds,
-        initialServiceId: _abbottServiceId,
+        initialViotpServiceId: _viotpServiceId,
+        initialHupsmsServiceId: _hupsmsServiceId,
       ),
     );
 
@@ -2689,8 +2867,14 @@ class _MainScreenState extends State<MainScreen> {
         if (result['otpTimeout'] != null) {
           _otpTimeoutSeconds = result['otpTimeout'];
         }
-        if (result.containsKey('serviceId')) {
-          _abbottServiceId = result['serviceId'];
+        if (result['otpProvider'] != null && result['otpProvider'] is OtpProviderType) {
+          _otpProvider = result['otpProvider'];
+        }
+        if (result.containsKey('viotpServiceId')) {
+          _viotpServiceId = result['viotpServiceId'];
+        }
+        if (result.containsKey('hupsmsServiceId')) {
+          _hupsmsServiceId = result['hupsmsServiceId'];
         }
         if (_currentPersonIndex >= _people.length) {
           _currentPersonIndex = 0;
@@ -2749,24 +2933,30 @@ const List<String> kTitles = [
 
 class PeopleEditorDialog extends StatefulWidget {
   final List<Map<String, String>> initialPeople;
-  final TextEditingController tokenController;
+  final TextEditingController viotpTokenController;
+  final TextEditingController hupsmsTokenController;
+  final OtpProviderType initialOtpProvider;
   final Map<String, bool> initialEnabled;
   final Map<String, int> initialDelays;
   final List<String> initialHospitals;
   final String initialSelectedHospital;
   final int initialOtpTimeout;
-  final int? initialServiceId;
+  final int? initialViotpServiceId;
+  final int? initialHupsmsServiceId;
 
   const PeopleEditorDialog({
     super.key,
     required this.initialPeople,
-    required this.tokenController,
+    required this.viotpTokenController,
+    required this.hupsmsTokenController,
+    required this.initialOtpProvider,
     required this.initialEnabled,
     required this.initialDelays,
     required this.initialHospitals,
     required this.initialSelectedHospital,
     required this.initialOtpTimeout,
-    this.initialServiceId,
+    this.initialViotpServiceId,
+    this.initialHupsmsServiceId,
   });
 
   @override
@@ -2780,9 +2970,12 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
   late List<String> _hospitals;
   late String _selectedHospital;
   late int _otpTimeout;
-  late TextEditingController _serviceIdController;
+  late OtpProviderType _selectedProvider;
+  late TextEditingController _viotpServiceIdController;
+  late TextEditingController _hupsmsServiceIdController;
   bool _isFetchingServices = false;
-  String _serviceStatus = '';
+  String _viotpServiceStatus = '';
+  String _hupsmsServiceStatus = '';
   final TextEditingController _pasteController = TextEditingController();
   final TextEditingController _newHospitalController = TextEditingController();
 
@@ -2804,9 +2997,14 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
     _delays = Map<String, int>.from(widget.initialDelays);
     _hospitals = List.from(widget.initialHospitals);
     _otpTimeout = widget.initialOtpTimeout;
-    _serviceIdController = TextEditingController(
-        text: widget.initialServiceId != null
-            ? widget.initialServiceId.toString()
+    _selectedProvider = widget.initialOtpProvider;
+    _viotpServiceIdController = TextEditingController(
+        text: widget.initialViotpServiceId != null
+            ? widget.initialViotpServiceId.toString()
+            : '');
+    _hupsmsServiceIdController = TextEditingController(
+        text: widget.initialHupsmsServiceId != null
+            ? widget.initialHupsmsServiceId.toString()
             : '');
     if (_hospitals.isEmpty) {
       _hospitals = List.from(kDefaultHospitals);
@@ -2830,82 +3028,85 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
   void dispose() {
     _pasteController.dispose();
     _newHospitalController.dispose();
-    _serviceIdController.dispose();
+    _viotpServiceIdController.dispose();
+    _hupsmsServiceIdController.dispose();
     super.dispose();
   }
 
-  Future<void> _fetchViOtpServices() async {
-    final token = widget.tokenController.text.trim();
+  String _formatCurrency(int value) {
+    return value.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
+  }
+
+  Future<void> _fetchServices(OtpProviderType provider) async {
+    final isHup = provider == OtpProviderType.hupsms;
+    final token = isHup
+        ? widget.hupsmsTokenController.text.trim()
+        : widget.viotpTokenController.text.trim();
+    final providerName = provider.displayName;
+
     if (token.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập ViOTP Token trước!')),
+        SnackBar(content: Text('Vui lòng nhập Token/API key của $providerName trước!')),
       );
       return;
     }
     setState(() => _isFetchingServices = true);
     try {
-      final res = await http.get(
-        Uri.parse('https://api.viotp.net/v1/services'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 8));
+      final serviceList = await OtpService.fetchServices(provider: provider, token: token);
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (data is List) {
-          Map? abbott;
-          for (final item in data) {
-            if (item is Map &&
-                (item['name'] ?? '')
-                    .toString()
-                    .toLowerCase()
-                    .contains('abbott')) {
-              abbott = item;
-              break;
-            }
-          }
-          if (abbott != null) {
-            final id = abbott['id'].toString();
-            final name = abbott['name'];
-            final price = abbott['price'];
-            _serviceIdController.text = id;
+      if (serviceList.isNotEmpty) {
+        final abbottMatches = serviceList
+            .where((item) => item.name.toLowerCase().contains('abbott'))
+            .toList();
+        // Sắp xếp các server Abbott theo giá tăng dần (rẻ nhất lên đầu)
+        abbottMatches.sort((a, b) => a.price.compareTo(b.price));
+
+        if (abbottMatches.length == 1) {
+          final abbott = abbottMatches.first;
+          final id = abbott.id.toString();
+          final name = abbott.displayName;
+          final priceStr = abbott.price > 0 ? ' - ${_formatCurrency(abbott.price)} đ' : '';
+          if (isHup) {
+            _hupsmsServiceIdController.text = id;
             setState(() {
-              _serviceStatus = 'Đã chọn: $name (ID: $id - ${price}đ)';
+              _hupsmsServiceStatus = 'Đã chọn: $name (ID: $id$priceStr)';
             });
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Tìm thấy dịch vụ: $name (ID: $id)')),
-              );
-            }
           } else {
+            _viotpServiceIdController.text = id;
             setState(() {
-              _serviceStatus =
-                  'Không thấy "Abbott", hãy chọn từ danh sách:';
+              _viotpServiceStatus = 'Đã chọn: $name (ID: $id$priceStr)';
             });
-            if (mounted) {
-              _showServicePickerInDialog(data);
-            }
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('[$providerName] Tìm thấy: $name (ID: $id$priceStr)')),
+            );
+          }
+        } else {
+          // Nếu có nhiều server Abbott hoặc không có, mở hộp thoại chọn kèm bộ lọc abbott
+          if (mounted) {
+            _showServicePickerInDialog(
+              serviceList,
+              provider,
+              initialQuery: abbottMatches.isNotEmpty ? 'abbott' : '',
+            );
           }
         }
       } else {
-        final json = jsonDecode(res.body);
-        final detail = (json is Map && json['detail'] != null)
-            ? json['detail']
-            : (json is Map && json['code'] != null
-                ? json['code']
-                : 'HTTP ${res.statusCode}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lỗi: $detail')),
+            SnackBar(content: Text('Dữ liệu dịch vụ $providerName trống hoặc không hợp lệ!')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
+        final err = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi kết nối: $e')),
+          SnackBar(content: Text('Lỗi tải dịch vụ $providerName: $err')),
         );
       }
     } finally {
@@ -2915,32 +3116,68 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
     }
   }
 
-  void _showServicePickerInDialog(List<dynamic> services) {
+  void _showServicePickerInDialog(
+    List<OtpServiceItem> services,
+    OtpProviderType provider, {
+    String initialQuery = '',
+  }) {
+    final isHup = provider == OtpProviderType.hupsms;
+    final providerName = provider.displayName;
     showDialog(
       context: context,
       builder: (ctx) {
-        String query = '';
+        String query = initialQuery;
+        final searchController = TextEditingController(text: initialQuery);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final filtered = services.where((item) {
-              if (item is! Map) return false;
-              final name = (item['name'] ?? '').toString().toLowerCase();
-              return name.contains(query.toLowerCase());
+              final q = query.toLowerCase().trim();
+              if (q.isEmpty) return true;
+              return item.name.toLowerCase().contains(q) ||
+                  (item.server?.toLowerCase().contains(q) ?? false) ||
+                  item.id.toString().contains(q);
             }).toList();
+
+            // Nếu tìm 'abbott', sắp xếp giá tăng dần
+            if (query.toLowerCase().contains('abbott')) {
+              filtered.sort((a, b) => a.price.compareTo(b.price));
+            }
+
+            final currentId = isHup
+                ? int.tryParse(_hupsmsServiceIdController.text.trim())
+                : int.tryParse(_viotpServiceIdController.text.trim());
 
             return AlertDialog(
               backgroundColor: const Color(0xFF1E293B),
-              title: const Text('Chọn dịch vụ ViOTP',
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.dns_rounded, color: Color(0xFF5EEAD4), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Chọn Server / Dịch vụ $providerName',
+                        style: const TextStyle(color: Colors.white, fontSize: 15)),
+                  ),
+                ],
+              ),
               content: SizedBox(
-                width: 400,
-                height: 450,
+                width: 440,
+                height: 480,
                 child: Column(
                   children: [
                     TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Tìm kiếm dịch vụ...',
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: query.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  searchController.clear();
+                                  setDialogState(() => query = '');
+                                },
+                              )
+                            : null,
+                        hintText: 'Tìm dịch vụ / server (vd: abbott, 247, 2, 3)...',
                         isDense: true,
                       ),
                       onChanged: (val) => setDialogState(() => query = val),
@@ -2952,33 +3189,92 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                               child: Text('Không tìm thấy dịch vụ nào phù hợp',
                                   style: TextStyle(color: Colors.white54)),
                             )
-                          : ListView.builder(
+                          : ListView.separated(
                               itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1, color: Colors.white10),
                               itemBuilder: (context, i) {
-                                final s = filtered[i] as Map;
-                                final id = s['id'];
-                                final name = s['name'] ?? 'Dịch vụ $id';
-                                final price = s['price'] != null
-                                    ? '${s['price']} đ'
-                                    : '';
+                                final s = filtered[i];
+                                final price = s.price > 0 ? '${_formatCurrency(s.price)} đ' : '';
+                                final isSelected = s.id == currentId;
+                                final isCheapest = i == 0 &&
+                                    query.toLowerCase().contains('abbott') &&
+                                    filtered.length > 1;
+
                                 return ListTile(
                                   dense: true,
-                                  title: Text(name,
-                                      style:
-                                          const TextStyle(color: Colors.white)),
-                                  subtitle: Text('ID: $id | Giá: $price',
-                                      style: const TextStyle(
-                                          color: Color(0xFF5EEAD4),
-                                          fontSize: 12)),
-                                  trailing: const Icon(Icons.chevron_right,
-                                      color: Colors.white54),
+                                  selected: isSelected,
+                                  selectedTileColor: const Color(0xFF5EEAD4).withValues(alpha: 0.1),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          s.displayName,
+                                          style: TextStyle(
+                                            color: isSelected ? const Color(0xFF5EEAD4) : Colors.white,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isCheapest)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.withValues(alpha: 0.2),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+                                          ),
+                                          child: const Text('RẺ NHẤT',
+                                              style: TextStyle(
+                                                  color: Colors.amber,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold)),
+                                        ),
+                                    ],
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      Text('ID: ${s.id}',
+                                          style: const TextStyle(
+                                              color: Colors.white54, fontSize: 11)),
+                                      if (price.isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text('Giá: $price',
+                                            style: const TextStyle(
+                                                color: Color(0xFF5EEAD4),
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11)),
+                                      ],
+                                      if (s.server != null && s.server!.isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text('(${s.server})',
+                                            style: const TextStyle(
+                                                color: Color(0xFFF0ABFC), fontSize: 11)),
+                                      ],
+                                    ],
+                                  ),
+                                  trailing: isSelected
+                                      ? const Icon(Icons.check_circle_rounded,
+                                          color: Color(0xFF5EEAD4), size: 20)
+                                      : const Icon(Icons.chevron_right,
+                                          color: Colors.white38, size: 18),
                                   onTap: () {
-                                    _serviceIdController.text = id.toString();
-                                    this.setState(() {
-                                      _serviceStatus =
-                                          'Đã chọn: $name (ID: $id - $price)';
-                                    });
+                                    if (isHup) {
+                                      _hupsmsServiceIdController.text = s.id.toString();
+                                      setState(() {
+                                        _hupsmsServiceStatus = 'Đã chọn: ${s.displayName} (ID: ${s.id}${price.isNotEmpty ? ' - $price' : ''})';
+                                      });
+                                    } else {
+                                      _viotpServiceIdController.text = s.id.toString();
+                                      setState(() {
+                                        _viotpServiceStatus = 'Đã chọn: ${s.displayName} (ID: ${s.id}${price.isNotEmpty ? ' - $price' : ''})';
+                                      });
+                                    }
                                     Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(this.context)
+                                        .showSnackBar(SnackBar(
+                                            content: Text(
+                                                '[$providerName] Đã chọn: ${s.displayName} (ID: ${s.id})')));
                                   },
                                 );
                               },
@@ -3461,8 +3757,11 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                       'hospitals': _hospitals,
                       'selectedHospital': _selectedHospital,
                       'otpTimeout': _otpTimeout,
-                      'serviceId':
-                          int.tryParse(_serviceIdController.text.trim()),
+                      'otpProvider': _selectedProvider,
+                      'viotpServiceId':
+                          int.tryParse(_viotpServiceIdController.text.trim()),
+                      'hupsmsServiceId':
+                          int.tryParse(_hupsmsServiceIdController.text.trim()),
                     }),
                     icon: const Icon(Icons.save_rounded, size: 18),
                     label: const Text('Lưu Thay Đổi'),
@@ -3997,6 +4296,7 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 1. CHỌN NHÀ CUNG CẤP OTP MẶC ĐỊNH
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -4005,18 +4305,94 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
               border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.swap_horiz_rounded,
+                        color: Color(0xFF5EEAD4), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Nguồn OTP mặc định',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF5EEAD4)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SegmentedButton<OtpProviderType>(
+                  segments: const [
+                    ButtonSegment(
+                      value: OtpProviderType.viotp,
+                      label: Text('ViOTP'),
+                      icon: Icon(Icons.flash_on_rounded, size: 16),
+                    ),
+                    ButtonSegment(
+                      value: OtpProviderType.hupsms,
+                      label: Text('HupSMS'),
+                      icon: Icon(Icons.bolt_rounded, size: 16),
+                    ),
+                  ],
+                  selected: {_selectedProvider},
+                  onSelectionChanged: (set) {
+                    setState(() => _selectedProvider = set.first);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 2. CẤU HÌNH VIOTP
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _selectedProvider == OtpProviderType.viotp
+                    ? const Color(0xFF5EEAD4).withValues(alpha: 0.4)
+                    : Colors.white.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Cấu hình ViOTP v1 (api.viotp.net)',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF5EEAD4)),
+                Row(
+                  children: [
+                    const Icon(Icons.sim_card_outlined,
+                        size: 16, color: Color(0xFF5EEAD4)),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Cấu hình ViOTP (api.viotp.net)',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF5EEAD4)),
+                      ),
+                    ),
+                    if (_selectedProvider == OtpProviderType.viotp)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF5EEAD4).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('ĐANG DÙNG',
+                            style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF5EEAD4))),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: widget.tokenController,
+                  controller: widget.viotpTokenController,
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.vpn_key_rounded),
                     labelText: 'ViOTP Token (Bearer)',
@@ -4029,14 +4405,14 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                   children: [
                     Expanded(
                       child: TextField(
-                        controller: _serviceIdController,
+                        controller: _viotpServiceIdController,
                         keyboardType: TextInputType.number,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly
                         ],
                         decoration: const InputDecoration(
                           prefixIcon: Icon(Icons.hub_rounded, size: 20),
-                          labelText: 'Mã Dịch Vụ (Service ID)',
+                          labelText: 'ViOTP Service ID',
                           hintText: 'Để trống để tự dò "Abbott"',
                           isDense: true,
                         ),
@@ -4044,8 +4420,9 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                     ),
                     const SizedBox(width: 8),
                     FilledButton.tonal(
-                      onPressed:
-                          _isFetchingServices ? null : _fetchViOtpServices,
+                      onPressed: _isFetchingServices
+                          ? null
+                          : () => _fetchServices(OtpProviderType.viotp),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         minimumSize: const Size(40, 44),
@@ -4060,46 +4437,170 @@ class _PeopleEditorDialogState extends State<PeopleEditorDialog> {
                               children: [
                                 Icon(Icons.sync_rounded, size: 16),
                                 SizedBox(width: 4),
-                                Text('Dò dịch vụ',
+                                Text('Dò ViOTP',
                                     style: TextStyle(fontSize: 12)),
                               ],
                             ),
                     ),
                   ],
                 ),
-                if (_serviceStatus.isNotEmpty) ...[
+                if (_viotpServiceStatus.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    _serviceStatus,
+                    _viotpServiceStatus,
                     style: const TextStyle(
                       fontSize: 11,
                       color: Color(0xFF5EEAD4),
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 3. CẤU HÌNH HUPSMS
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _selectedProvider == OtpProviderType.hupsms
+                    ? const Color(0xFFF0ABFC).withValues(alpha: 0.4)
+                    : Colors.white.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.bolt_rounded,
+                        size: 16, color: Color(0xFFF0ABFC)),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Cấu hình HupSMS (hupsms.com)',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF0ABFC)),
+                      ),
+                    ),
+                    if (_selectedProvider == OtpProviderType.hupsms)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0ABFC).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('ĐANG DÙNG',
+                            style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFF0ABFC))),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 10),
-                DropdownButtonFormField<int>(
-                  initialValue:
-                      [60, 90, 120].contains(_otpTimeout) ? _otpTimeout : 60,
-                  isExpanded: true,
+                TextField(
+                  controller: widget.hupsmsTokenController,
                   decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.timer_outlined, size: 20),
-                    labelText: 'Thời gian chờ OTP (giây)',
+                    prefixIcon: Icon(Icons.key_rounded),
+                    labelText: 'HupSMS API Key',
+                    hintText: 'Nhập API key lấy từ hupsms.com',
                     isDense: true,
                   ),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 60,
-                        child: Text('60 giây (Mặc định - Chuẩn Abbott)')),
-                    DropdownMenuItem(value: 90, child: Text('90 giây')),
-                    DropdownMenuItem(
-                        value: 120, child: Text('120 giây (2 phút)')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => _otpTimeout = val);
-                  },
                 ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _hupsmsServiceIdController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.hub_rounded, size: 20),
+                          labelText: 'HupSMS Service ID',
+                          hintText: 'Để trống để tự dò "Abbott"',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: _isFetchingServices
+                          ? null
+                          : () => _fetchServices(OtpProviderType.hupsms),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        minimumSize: const Size(40, 44),
+                      ),
+                      child: _isFetchingServices
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Row(
+                              children: [
+                                Icon(Icons.sync_rounded, size: 16),
+                                SizedBox(width: 4),
+                                Text('Dò HupSMS',
+                                    style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
+                if (_hupsmsServiceStatus.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _hupsmsServiceStatus,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFF0ABFC),
+                    ),
+                  ),
+                ],
               ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 4. THỜI GIAN CHỜ OTP
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: DropdownButtonFormField<int>(
+              initialValue:
+                  [60, 90, 120].contains(_otpTimeout) ? _otpTimeout : 60,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.timer_outlined, size: 20),
+                labelText: 'Thời gian chờ OTP (giây)',
+                isDense: true,
+              ),
+              items: const [
+                DropdownMenuItem(
+                    value: 60,
+                    child: Text('60 giây (Mặc định - Chuẩn Abbott)')),
+                DropdownMenuItem(value: 90, child: Text('90 giây')),
+                DropdownMenuItem(
+                    value: 120, child: Text('120 giây (2 phút)')),
+              ],
+              onChanged: (val) {
+                if (val != null) setState(() => _otpTimeout = val);
+              },
             ),
           ),
           const SizedBox(height: 12),

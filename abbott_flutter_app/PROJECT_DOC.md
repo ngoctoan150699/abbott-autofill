@@ -74,8 +74,13 @@ Các cấu hình cần có:
 
 | Cấu hình | Ý nghĩa |
 |---|---|
-| ViOTP token | Token dùng để gọi API thuê số và lấy OTP |
-| URL gần nhất | Link Abbott đã mở gần nhất |
+| Nguồn OTP được chọn | Chọn nhà cung cấp OTP hiện hành (`ViOTP` hoặc `HupSMS`) |
+| ViOTP Token | Token API (Bearer) dùng để gọi ViOTP (`api.viotp.net`) |
+| ViOTP Service ID | Mã dịch vụ Abbott trên hệ thống ViOTP |
+| HupSMS API Key | API Key dùng để xác thực với HupSMS (`hupsms.com`) |
+| HupSMS Service ID | Mã dịch vụ Abbott trên hệ thống HupSMS |
+| Thời gian chờ OTP | Thời gian chờ nhận mã OTP (60s mặc định, 90s, 120s) |
+| URL gần nhất | Link sự kiện Abbott đã mở gần nhất |
 | Danh sách người tham dự | Dữ liệu đầu vào để app parse và xử lý |
 | Profile danh sách Bệnh viện | Danh sách bệnh viện lưu trong bộ nhớ ứng dụng |
 | Bệnh viện mặc định | Bệnh viện được chọn mặc định (mặc định ban đầu là Bệnh viện Đa khoa) |
@@ -161,30 +166,47 @@ Ví dụ quy tắc:
 
 Nếu không có quy tắc khớp, ứng dụng nên chuyển dữ liệu về dạng title case.
 
-### 3.6. Tích hợp thuê số điện thoại (ViOTP API v1 - api.viotp.net)
+### 3.6. Tích hợp thuê số điện thoại đa nguồn (ViOTP & HupSMS)
 
-Ứng dụng tích hợp với hệ thống API v1 của ViOTP (`https://api.viotp.net`).
-Tất cả các request gửi qua header `Authorization: Bearer <API_TOKEN>` và `Content-Type: application/json`.
+Ứng dụng hỗ trợ song song 2 nhà cung cấp dịch vụ thuê SIM / nhận OTP thông qua module trừu tượng hóa [`OtpService`](lib/otp_service.dart), cho phép người dùng chuyển đổi linh hoạt bằng 1 chạm giữa **ViOTP** và **HupSMS**:
 
-Chức năng:
+#### A. ViOTP API v1 (`https://api.viotp.net`)
+Xác thực qua header `Authorization: Bearer <API_TOKEN>`:
+- **Lấy số dư:** `GET /v1/balance` -> Trả về `{"status_code": 200, "data": {"balance": ...}}`.
+- **Lấy danh sách dịch vụ:** `GET /v1/services` -> Tìm dịch vụ "Abbott" hoặc hiển thị danh sách để chọn.
+- **Thuê số:** `POST /v1/rentals` với JSON body `{"serviceId": <id>}`. Nhận về rental `id`, `phone`, `balance`.
 
-- **Lấy số dư tài khoản:** Gọi `GET https://api.viotp.net/v1/balance`. Hiển thị số dư VND trên thanh trạng thái và tự động cập nhật khi thuê số.
-- **Lấy danh sách dịch vụ:** Gọi `GET https://api.viotp.net/v1/services`. Tìm dịch vụ có tên chứa "Abbott" hoặc cho phép người dùng mở hộp thoại tìm kiếm và chọn dịch vụ thủ công / nhập Service ID.
-- **Thuê số điện thoại:** Gọi `POST https://api.viotp.net/v1/rentals` với body `{"serviceId": <id>}`. 
-  - Thành công (HTTP 201/200): Nhận về rental `id`, `phone`, `phoneLocal`, `balance`.
-  - Tự động chuẩn hóa số điện thoại (bắt đầu bằng 0), lưu `_currentRequestId`, copy vào bộ nhớ tạm (Clipboard), cập nhật số dư mới.
-  - Thất bại: Hiển thị chi tiết lỗi từ API (`detail` hoặc `code` như `insufficient_balance`, `out_of_stock`, `invalid_token`, ...).
+#### B. HupSMS API v1 (`https://hupsms.com/api/v1`)
+Xác thực qua query parameter `?api_key=<API_KEY>` (kèm header `Authorization: Bearer <API_KEY>` dự phòng):
+- **Lấy số dư:** `GET /api/v1/balance?api_key=...` -> Trả về `{"status": "success", "data": {"balance": 150000}}`.
+- **Hỗ trợ đa Server (Server 2, Server 3, Server 247...):**
+  - HupSMS cung cấp cùng một dịch vụ (như Abbott) trên nhiều Server khác nhau với mức giá và kho số khác nhau (ví dụ: Server 247 giá 1.500đ, Server 3 giá 1.800đ, Server 2 giá 3.500đ).
+  - Ứng dụng tự động phân tích trường `server` trong danh sách dịch vụ `GET /api/v1/services?api_key=...`.
+  - Tự động sắp xếp các Server Abbott theo giá từ rẻ nhất đến cao nhất (ưu tiên Server 247 - 1.500đ gắn nhãn `RẺ NHẤT`).
+  - Cho phép người dùng bấm vào nút Server ID ngay trên màn hình chính để mở popup chọn Server mong muốn, dễ dàng chuyển đổi khi một Server hết số.
+- **Thuê số:** `GET /api/v1/rent?api_key=...&serviceId=...` -> Trả về `{"status": "success", "data": {"orderId": "...", "phone": "098...", "balance": 148000}}`.
+- **Hủy đơn hoàn tiền:** `GET /api/v1/cancel/:id?api_key=...` -> Trả về `{"status": "success", "data": {"refund": 2000}}`.
 
-### 3.7. Tích hợp lấy OTP (Polling v1)
+Khi thuê số thành công từ bất kỳ nguồn nào:
+- Tự động chuẩn hóa số điện thoại về định dạng bắt đầu bằng số `0` (thay thế đầu `84` hoặc `+84`).
+- Tự động sao chép số điện thoại vào bộ nhớ tạm (Clipboard).
+- Cập nhật số dư tài khoản của nhà cung cấp tương ứng ngay trên giao diện.
+
+### 3.7. Tích hợp kiểm tra OTP (Polling & Hoàn tiền)
 
 Sau khi điền số điện thoại và bấm gửi mã trên website Abbott, ứng dụng tiến hành kiểm tra OTP tự động:
 
-- **Kiểm tra OTP:** Polling `GET https://api.viotp.net/v1/rentals/{id}` theo chu kỳ ~2.5 giây.
+- **Kiểm tra ViOTP:** Polling `GET https://api.viotp.net/v1/rentals/{id}` theo chu kỳ ~2.5 giây.
   - `status = 0`: Đang chờ tin nhắn OTP.
-  - `status = 1`: Hoàn thành, lấy OTP từ trường `code` (hoặc phân tích cú pháp `content`), tự động copy vào Clipboard và tự điền vào form website.
-  - `status = 2`: Phiên thuê số đã hết hạn và hệ thống đã hoàn tiền.
-- **Cơ chế đếm ngược chính xác:** Tách riêng bộ đếm thời gian thực (`Timer.periodic` theo `DateTime.now()`) với tiến trình polling API ViOTP, đảm bảo giây đếm ngược trên ứng dụng khớp 1:1 với đồng hồ đếm ngược trên website Abbott mà không bị lệch do độ trễ mạng (Network latency).
-- Cho phép cấu hình thời gian chờ OTP (60s mặc định, 90s, 120s) và cho phép bấm dừng chờ bất cứ lúc nào.
+  - `status = 1`: Hoàn thành, lấy OTP từ trường `code` (hoặc regex từ `content`).
+  - `status = 2`: Đơn hết hạn, hệ thống tự động hoàn tiền.
+- **Kiểm tra HupSMS:** Polling `GET https://hupsms.com/api/v1/check/{orderId}?api_key=...` theo chu kỳ ~2.5 giây.
+  - `status = "pending"`: Đang chờ tin nhắn OTP.
+  - `status = "success"`: Hoàn thành, lấy OTP từ trường `otp` (hoặc regex từ `smsContent`).
+  - `status = "cancelled"` hoặc `"expired"`: Đơn bị hủy hoặc quá hạn.
+- **Hủy phiên & Hoàn tiền thông minh:** Khi người dùng bấm nút "Dừng chờ OTP" (hoặc đơn hết thời gian timeout), ứng dụng tự động gọi API `cancelRental` đối với HupSMS (`GET /api/v1/cancel/:id`) để hoàn tiền ngay lập tức vào tài khoản HupSMS của người dùng.
+- **Cơ chế đếm ngược chính xác:** Tách riêng bộ đếm thời gian thực (`Timer.periodic` theo `DateTime.now()`) với tiến trình polling API, đảm bảo giây đếm ngược trên ứng dụng khớp 1:1 với đồng hồ đếm ngược trên website Abbott mà không bị lệch do độ trễ mạng (Network latency).
+- Cho phép cấu hình thời gian chờ OTP (60s mặc định, 90s, 120s) và cho phép bấm dừng chờ bất cứ lúc nào. Khi có OTP, tự động copy vào Clipboard và kích hoạt tự điền.
 
 ### 3.8. Auto-fill form
 

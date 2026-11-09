@@ -239,3 +239,4 @@ flowchart TD
 ### ❓ 4. Làm sao để chia sẻ ứng dụng cho người khác dùng trên máy khác?
 - Bạn chỉ cần gửi file nén **`abbott_helper-windows-x64.zip`** (tải từ mục Releases trên GitHub).
 - Người nhận chỉ cần giải nén file zip ra một thư mục bất kỳ và nhấp đúp vào **`abbott_helper.exe`** là có thể sử dụng ngay mà không cần cài đặt thêm bất kỳ phần mềm nào.
+

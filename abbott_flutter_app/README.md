@@ -11,6 +11,7 @@
 
 ## 📖 Tài liệu liên quan
 - 👉 **[Xem Hướng dẫn sử dụng & Quy trình vận hành chuẩn (SOP Chi tiết)](USER_GUIDE.md)**
+- 🤖 **[Thiết kế Kiến trúc & Flow Tự động hóa hoàn toàn (AUTOMATION_FLOW.md)](AUTOMATION_FLOW.md)**
 - 📘 **[Đặc tả kỹ thuật kiến trúc hệ thống (PROJECT_DOC.md)](PROJECT_DOC.md)**
 
 ---

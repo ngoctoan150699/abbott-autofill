@@ -242,3 +242,4 @@ Sau khi hoàn thành đợt chạy tự động (Batch Run), ứng dụng sẽ l
   - Tích hợp State Machine hoàn chỉnh.
   - Thêm nút **`[ 🚀 BẮT ĐẦU CHẠY TỰ ĐỘNG ]`** với thanh tiến trình `Đang chạy: 3/20 người...`.
   - Báo cáo kết quả và xuất file Excel.
+

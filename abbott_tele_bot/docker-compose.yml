@@ -1,0 +1,28 @@
+services:
+  abbott-fill-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: abbott-fill-bot:latest
+    container_name: abbott_fill_bot
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
+      - BOT_TOKEN=${BOT_TOKEN:?Set BOT_TOKEN in .env}
+    volumes:
+      # Ánh xạ thư mục cấu hình data và screenshots ra ngoài host
+      - ./data:/app/data
+      - ./screenshots:/app/screenshots
+      - ./downloads:/app/downloads
+      # Ánh xạ mã nguồn để cập nhật nhanh không cần rebuild
+      - ./telegram_bot.py:/app/telegram_bot.py
+      - ./config.py:/app/config.py
+      - ./otp_service.py:/app/otp_service.py
+      - ./qr_reader.py:/app/qr_reader.py
+      - ./abbott_browser.py:/app/abbott_browser.py
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

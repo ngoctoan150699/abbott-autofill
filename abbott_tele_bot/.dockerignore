@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.env
+venv
+.venv
+data/
+screenshots/*
+downloads/*
+!screenshots/.gitkeep
+!downloads/.gitkeep

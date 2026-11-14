@@ -29,6 +29,9 @@ Nguyễn thị như quyên - Khoa Ngoại Tổng Hợp - Bác Sỹ Điều Trị
 Huỳnh thị việt trinh - Khoa Ngoại Tổng Hợp - Y Tá/Điều Dưỡng"""
 assert normalize_people_lines(sample) == expected
 assert len(parse_people_lines(expected)) == 9
+assert parse_people_lines('Huỳnh Đăng Minh- Khoa ngoại tiêu hoá - Bác Sỹ Điều Trị')[0]['department'] == 'Khoa Ngoai Tieu Hoa'
+assert parse_people_lines('Huỳnh Đăng Minh -Khoa ngoại tiêu hoá - Bác Sỹ Điều Trị')[0]['name'] == 'Huỳnh Đăng Minh'
+assert normalize_people_lines('An- Khoa Khác - Khoa Lão - bs - BV X').endswith('Bác Sỹ Điều Trị - BV X')
 other = 'Trần Văn An - Khoa Khác - Khoa Lão - bs'
 assert normalize_people_lines(other) == 'Trần Văn An - Khoa Khác - Khoa Lão - Bác Sỹ Điều Trị'
 assert parse_people_lines(normalize_people_lines(other))[0]['otherDepartment'] == 'Khoa Lão'
@@ -51,7 +54,7 @@ except ValueError:
 
 updates = [
     {'update_id': i, 'message': {'chat': {'id': 123}, 'text': text}}
-    for i, text in enumerate(['/token', '/cancel', '/otp', '/help', '/people', '/run', '/stop'])
+    for i, text in enumerate(['/token', '/cancel', '/otp', '/help', '/people', '/run', '⏹ Dừng Tác Vụ'])
 ]
 requests_seen = []
 messages = []
@@ -80,6 +83,8 @@ with patch.object(bot.requests, 'get', side_effect=fake_get), \
 assert not bot.user_states, 'Lệnh /cancel phải hủy trạng thái nhập token'
 assert any('Vui lòng gửi HupSMS API Key' in m for m in messages)
 assert any('LỆNH NHANH' in m for m in messages)
+assert any('dừng tiến trình' in m for m in messages)
+assert not bot.is_queue_running
 assert {c['command'] for c in requests_seen} >= {'start','help','otp','token','run','stop','people','balance','normalize','mode'}
 
 # Review gate: skip/stale must not approve; only matching current approval unblocks.
@@ -149,7 +154,7 @@ with patch.object(bot, 'send_message') as sent, patch.object(bot, 'answer_callba
     bot.cfg = {'people': parse_people_lines('A <B> - ngoại tổng hợp - bs - BV X\nC - Khoa Khác - Lão - bs - BV Y'), 'hospitals': ['BV X', 'BV Y']}
     bot.show_people_menu(123)
     token = bot.person_sessions[123]['token']
-    assert 'A &lt;B&gt;' in sent.call_args.args[1] and 'BV X' in sent.call_args.args[1]
+    assert 'A &lt;B&gt;' in sent.call_args.args[1] and 'Lão' in sent.call_args.args[1]
     rows = sent.call_args.kwargs['reply_markup']['inline_keyboard']
     buttons = [button['callback_data'] for row in rows for button in row]
     assert f'person:{token}:1:open' in buttons and not any('otherDepartment' in b for b in buttons)
@@ -162,3 +167,36 @@ with patch.object(bot, 'send_message') as sent, patch.object(bot, 'answer_callba
     assert bot.cfg['people'][1]['hospital'] == 'BV X' and '2/2' in sent.call_args.args[1]
     bot.handle_person_callback(123, 'cb', f'person:{token}:0:remove:confirm')
     assert len(bot.cfg['people']) == 2  # stale session cannot delete
+
+# Paginated overview, navigation editing, escaping and stale callbacks.
+with patch.object(bot, 'send_message') as sent, patch.object(bot, 'answer_callback_query') as answered, \
+     patch.object(bot.requests, 'post') as post, patch.object(bot, 'save_config'):
+    bot.is_queue_running = False
+    bot.queue_thread = None
+    bot.cfg = {'people': parse_people_lines('\n'.join(f'Người {i} - Khoa Khác - Lão - bs - BV X' for i in range(1, 19)))}
+    bot.show_people_menu(123)
+    token = bot.person_sessions[123]['token']
+    text = sent.call_args.args[1]
+    assert 'Người 1' in text and 'Người 8' in text and 'Người 9' not in text and 'Lão' in text
+    rows = sent.call_args.kwargs['reply_markup']['inline_keyboard']
+    assert any(b['callback_data'] == f'person:{token}:8:overview' for r in rows for b in r)
+    post.return_value.json.return_value = {'ok': True}
+    def callback(data):
+        bot.handle_callback_query({'callback_query': {'id': 'cb', 'data': data, 'message': {'message_id': 42, 'chat': {'id': 123}}}})
+    callback(f'person:{token}:8:overview')
+    payload = post.call_args.kwargs['json']
+    assert payload['message_id'] == 42 and 'Người 9' in payload['text'] and 'Trang 2/3' in payload['text']
+    callback(f'person:{token}:8:open')
+    assert '9/18' in post.call_args.kwargs['json']['text']
+    callback(f'person:{token}:8:overview')
+    assert 'Trang 2/3' in post.call_args.kwargs['json']['text']
+    bot.cfg['people'][8]['name'] = 'Changed'
+    post.reset_mock()
+    callback(f'person:{token}:8:open')
+    assert not post.called and answered.call_args.kwargs['show_alert']
+    bot.show_people_menu(123)
+    token = bot.person_sessions[123]['token']
+    bot.is_queue_running = True
+    callback(f'person:{token}:0:open')
+    assert not post.called and answered.call_args.kwargs['show_alert']
+    bot.is_queue_running = False

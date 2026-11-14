@@ -177,27 +177,32 @@ class OtpService:
                 res = requests.get(url, headers=OtpService._headers(clean_token), timeout=10)
                 if res.status_code == 200:
                     j = res.json()
-                    data = j.get("data") if (isinstance(j, dict) and isinstance(j.get("data"), dict)) else j
+                    if not isinstance(j, dict) or j.get("success") is False:
+                        return "error", None, "HupSMS từ chối kiểm tra đơn hoặc trả dữ liệu không hợp lệ"
+                    data = j.get("data") if isinstance(j.get("data"), dict) else j
                     st = str(data.get("status") or "").lower()
                     otp = data.get("otp") or ""
                     sms = data.get("smsContent") or ""
 
-                    if st == "success" or otp:
+                    if st in ("cancelled", "canceled"):
+                        return "cancelled", None, "Đơn đã bị hủy"
+                    if st == "expired":
+                        return "expired", None, "Đơn đã hết hạn"
+                    if st == "success" or otp or sms:
                         import re
-                        clean_otp = str(otp) if otp else ""
+                        clean_otp = str(otp).strip() if otp else ""
                         if not clean_otp and sms:
-                            m = re.search(r'\b\d{4,8}\b', sms)
+                            m = re.search(r'\b\d{4,8}\b', str(sms))
                             if m:
                                 clean_otp = m.group(0)
-                        return "success", clean_otp, sms
-                    elif st in ("cancelled", "canceled"):
-                        return "cancelled", None, "Đơn đã bị hủy"
-                    elif st == "expired":
-                        return "expired", None, "Đơn đã hết hạn"
+                        if clean_otp:
+                            return "success", clean_otp, sms
+                        if st == "success":
+                            return "error", None, "HupSMS báo thành công nhưng không có mã OTP"
                     return "pending", None, "Đang chờ OTP..."
                 elif res.status_code == 404:
                     return "expired", None, "Không tìm thấy đơn hàng (có thể đã hủy/hết hạn)"
-                return "pending", None, f"HTTP {res.status_code}"
+                return "error", None, f"HupSMS trả HTTP {res.status_code} khi kiểm tra OTP"
             else:
                 url = f"{VIOTP_BASE}/rentals/{order_id}"
                 res = requests.get(url, headers=OtpService._headers(clean_token), timeout=10)
@@ -212,9 +217,9 @@ class OtpService:
                     elif st == 2:
                         return "expired", None, "Hết hạn thuê số (Đã hoàn tiền)"
                     return "pending", None, "Đang chờ OTP..."
-                return "pending", None, f"HTTP {res.status_code}"
+                return "error", None, f"ViOTP trả HTTP {res.status_code} khi kiểm tra OTP"
         except Exception as e:
-            return "error", None, str(e)
+            return "error", None, f"Lỗi kết nối hoặc dữ liệu khi kiểm tra OTP ({type(e).__name__})"
 
     @staticmethod
     def cancel_rental(provider: str, token: str, order_id: str) -> Tuple[bool, str]:
@@ -230,8 +235,12 @@ class OtpService:
             res = requests.get(url, headers=OtpService._headers(clean_token), timeout=10)
             if res.status_code == 200:
                 j = res.json()
-                refund = j.get("data", {}).get("refund") if isinstance(j.get("data"), dict) else 0
-                return True, f"Đã hủy và hoàn lại {refund or 0} đ"
-            return False, f"HTTP {res.status_code}: {res.text}"
-        except Exception as e:
-            return False, str(e)
+                if not isinstance(j, dict) or j.get("success") is False:
+                    return False, "Nhà cung cấp từ chối hủy đơn; kiểm tra trạng thái trên HupSMS."
+                refund = j.get("data", {}).get("refund") if isinstance(j.get("data"), dict) else None
+                if refund is not None:
+                    return True, f"Nhà cung cấp xác nhận hủy; hoàn tiền: {refund} đ"
+                return True, "Nhà cung cấp phản hồi hủy; chưa xác minh số tiền hoàn."
+            return False, f"Không hủy được (HTTP {res.status_code}); kiểm tra trạng thái trên HupSMS."
+        except Exception:
+            return False, "Không liên hệ được nhà cung cấp; kiểm tra trạng thái đơn và hoàn tiền."

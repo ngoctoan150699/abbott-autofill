@@ -56,6 +56,9 @@ MAIN_KEYBOARD = {
     "keyboard": [
         [
             {"text": "🚀 Chạy Tự Động"},
+            {"text": "⏹ Dừng Tác Vụ"},
+        ],
+        [
             {"text": "🔗 Link Sự Kiện"},
         ],
         [
@@ -351,7 +354,8 @@ def run_automation_queue(chat_id: int):
         f"🔑 Nguồn OTP: <b>{provider.upper()}</b> (ID: {service_id})\n"
         f"⏱ Thời gian chờ OTP: <b>60 giây</b>\n"
         f"📸 Chế độ gửi: <b>{'Chờ duyệt ảnh' if cfg.get('submit_mode', 'review') == 'review' else 'Tự động hoàn toàn'}</b>\n"
-        f"<i>Bot sẽ chụp ảnh thẻ form gửi lại Telegram trước khi submit từng người.</i>",
+        f"<i>Bấm ⏹ Dừng Tác Vụ hoặc /stop để dừng sau bước đang xử lý.</i>",
+        reply_markup={"inline_keyboard": [[{"text": "⏹ Dừng Tác Vụ", "callback_data": "stop_queue"}]]},
     )
 
     success_count = 0
@@ -420,6 +424,9 @@ def run_automation_queue(chat_id: int):
         else:
             fail_count += 1
             send_message(chat_id, f"❌ <b>[Queue {i}/{total} THẤT BẠI]</b> {msg_res}")
+            if "Lỗi kiểm tra OTP liên tiếp" in msg_res or "Chưa xác nhận hủy" in msg_res:
+                send_message(chat_id, "⏹ Tạm dừng hàng đợi: cần kiểm tra API hoặc tình trạng hủy đơn trước khi thuê số tiếp.")
+                break
 
         # Nghỉ nhẹ giữa các người
         time.sleep(3.0)
@@ -455,7 +462,7 @@ def handle_callback_query(update: dict):
         return
 
     if data.startswith("person:"):
-        handle_person_callback(chat_id, cb_id, data)
+        handle_person_callback(chat_id, cb_id, data, msg.get("message_id"))
         return
 
     if data.startswith(("approve:", "skip:")):
@@ -484,8 +491,8 @@ def handle_callback_query(update: dict):
 
     if data == "start_queue":
         answer_callback_query(cb_id, "Đang khởi động hàng đợi...")
-        if is_queue_running:
-            send_message(chat_id, "⚠️ Hàng đợi đang chạy! Vui lòng đợi hoặc bấm Dừng.")
+        if is_queue_running or (queue_thread and queue_thread.is_alive()):
+            send_message(chat_id, "⚠️ Hàng đợi đang chạy hoặc đang dừng! Vui lòng đợi.")
             return
         is_queue_running = True
         queue_thread = threading.Thread(target=run_automation_queue, args=(chat_id,), daemon=True)
@@ -643,7 +650,7 @@ def person_session_valid(chat_id, token):
     return session and session["token"] == token and session["people"] == cfg.get("people", [])
 
 
-def handle_person_callback(chat_id, cb_id, data):
+def handle_person_callback(chat_id, cb_id, data, message_id=None):
     parts = data.split(":")
     if len(parts) not in (4, 5) or not parts[2].isdigit():
         answer_callback_query(cb_id, "Nút không hợp lệ", show_alert=True)
@@ -661,7 +668,10 @@ def handle_person_callback(chat_id, cb_id, data):
     prefix = f"person:{token}:{index}:"
     if action == "open" and not choice:
         answer_callback_query(cb_id)
-        show_person_card(chat_id, index, token)
+        show_person_card(chat_id, index, token, message_id)
+    elif action == "overview" and not choice:
+        answer_callback_query(cb_id)
+        show_people_overview(chat_id, index // PEOPLE_PAGE_SIZE, token, message_id)
     elif action == "hospital" and not choice:
         hospitals = person_sessions[chat_id]["hospitals"]
         rows = [[{"text": ("✅ " if h == person.get('hospital') else "") + h, "callback_data": prefix + "hospital:" + str(i)}] for i, h in enumerate(hospitals)]
@@ -748,7 +758,52 @@ def handle_person_text(chat_id, text):
     show_people_menu(chat_id, session["index"])
 
 
-def show_person_card(chat_id, index, token):
+def send_people_view(chat_id, text, rows, message_id=None):
+    markup = {"inline_keyboard": rows}
+    if message_id:
+        try:
+            result = requests.post(f"{TELEGRAM_API_URL}/editMessageText", json={
+                "chat_id": chat_id, "message_id": message_id, "text": text,
+                "parse_mode": "HTML", "reply_markup": markup,
+            }, timeout=20).json()
+            if result.get("ok") or "message is not modified" in result.get("description", ""):
+                return
+        except Exception as e:
+            print(f"[!] Lỗi editMessageText: {e}")
+    send_message(chat_id, text, reply_markup=markup)
+
+
+# ponytail: 8 người mỗi trang; điều chỉnh khi cần hỗ trợ nội dung dài hơn.
+PEOPLE_PAGE_SIZE = 8
+
+
+def show_people_overview(chat_id, page, token, message_id=None):
+    people = cfg.get("people", [])
+    start = page * PEOPLE_PAGE_SIZE
+    lines = [f"<b>📋 DANH SÁCH NGƯỜI THAM GIA ({len(people)})</b>", f"Trang {page + 1}/{(len(people) + PEOPLE_PAGE_SIZE - 1) // PEOPLE_PAGE_SIZE}", ""]
+    buttons = []
+    for index in range(start, min(start + PEOPLE_PAGE_SIZE, len(people))):
+        p = people[index]
+        department = p.get("otherDepartment") if p.get("department") == "Khac" else p.get("department")
+        # Bound user-provided data so each Telegram message stays under 4096 characters.
+        values = [html.escape(str(v or "—")[:100]) for v in (p.get("name"), department, p.get("role"))]
+        lines.append(f"{index + 1}. <b>{values[0]}</b> — {values[1]} — {values[2]}")
+        buttons.append({"text": str(index + 1), "callback_data": f"person:{token}:{index}:open"})
+    lines.append("\n<i>Bấm số để sửa người tương ứng.</i>")
+    rows = [buttons[i:i + 4] for i in range(0, len(buttons), 4)]
+    nav = []
+    if page > 0:
+        nav.append({"text": "⬅️ Trước", "callback_data": f"person:{token}:{start - PEOPLE_PAGE_SIZE}:overview"})
+    if start + PEOPLE_PAGE_SIZE < len(people):
+        nav.append({"text": "Tiếp ➡️", "callback_data": f"person:{token}:{start + PEOPLE_PAGE_SIZE}:overview"})
+    if nav:
+        rows.append(nav)
+    rows += [[{"text": "📋 Xuất danh sách chuẩn", "callback_data": "export_people"}],
+             [{"text": "🗑 Xóa toàn bộ danh sách", "callback_data": "clear_people"}]]
+    send_people_view(chat_id, "\n".join(lines), rows, message_id)
+
+
+def show_person_card(chat_id, index, token, message_id=None):
     people = cfg.get("people", [])
     p = people[index]
     prefix = f"person:{token}:{index}:"
@@ -767,13 +822,14 @@ def show_person_card(chat_id, index, token):
             nav.append({"text": label, "callback_data": f"person:{token}:{target}:open"})
     if nav:
         rows.append(nav)
-    rows += [[{"text": "🗑 Xóa người này", "callback_data": prefix + "remove"}],
+    rows += [[{"text": "📋 Danh sách", "callback_data": prefix + "overview"}],
+             [{"text": "🗑 Xóa người này", "callback_data": prefix + "remove"}],
              [{"text": "📋 Xuất danh sách chuẩn", "callback_data": "export_people"}],
              [{"text": "🗑 Xóa toàn bộ danh sách", "callback_data": "clear_people"}]]
-    send_message(chat_id, "\n".join(lines), reply_markup={"inline_keyboard": rows})
+    send_people_view(chat_id, "\n".join(lines), rows, message_id)
 
 
-def show_people_menu(chat_id: int, index=0):
+def show_people_menu(chat_id: int, index=None):
     people = cfg.get("people", [])
     count = len(people)
     token = secrets.token_hex(4)
@@ -793,7 +849,10 @@ def show_people_menu(chat_id: int, index=0):
         )
         send_message(chat_id, msg)
     else:
-        show_person_card(chat_id, min(index, count - 1), token)
+        if index is None:
+            show_people_overview(chat_id, 0, token)
+        else:
+            show_person_card(chat_id, min(index, count - 1), token)
 
 
 def show_hospital_menu(chat_id: int):
@@ -1005,7 +1064,10 @@ def main():
                     continue
 
                 # Lệnh / được ưu tiên hơn nội dung token đang chờ; /cancel vẫn xử lý trong trạng thái đó.
-                command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
+                if text == "⏹ Dừng Tác Vụ":
+                    command = "/stop"
+                else:
+                    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
                 if command and command != "/cancel":
                     user_states.pop(chat_id, None)
                 if text == "🔙 Quay lại Menu Chính" and user_states.get(chat_id) not in ("WAITING_HUPSMS_KEY", "WAITING_VIOTP_TOKEN", "WAITING_NEW_HOSPITAL", "WAITING_NORMALIZE", "WAITING_PERSON"):
@@ -1211,8 +1273,8 @@ def main():
                     show_mode_menu(chat_id)
                     continue
                 if command == "/run":
-                    if is_queue_running:
-                        send_message(chat_id, "⚠️ Hàng đợi đang chạy! Vui lòng đợi hoặc bấm Dừng.")
+                    if is_queue_running or (queue_thread and queue_thread.is_alive()):
+                        send_message(chat_id, "⚠️ Hàng đợi đang chạy hoặc đang dừng! Vui lòng đợi.")
                     else:
                         is_queue_running = True
                         queue_thread = threading.Thread(target=run_automation_queue, args=(chat_id,), daemon=True)
@@ -1278,8 +1340,8 @@ def main():
 
                 # 5. Xử lý Menu nút bấm chính
                 if text == "🚀 Chạy Tự Động":
-                    if is_queue_running:
-                        send_message(chat_id, "⚠️ Hàng đợi đang chạy! Vui lòng đợi hoặc bấm Dừng.")
+                    if is_queue_running or (queue_thread and queue_thread.is_alive()):
+                        send_message(chat_id, "⚠️ Hàng đợi đang chạy hoặc đang dừng! Vui lòng đợi.")
                     else:
                         is_queue_running = True
                         queue_thread = threading.Thread(target=run_automation_queue, args=(chat_id,), daemon=True)
@@ -1385,7 +1447,7 @@ def main():
             # Long-polling bình thường timeout khi không có tin nhắn mới, không cần in log
             continue
         except requests.exceptions.RequestException as req_err:
-            print(f"[!] Lỗi kết nối Telegram (đang kết nối lại): {req_err}")
+            print(f"[!] Lỗi kết nối Telegram (đang kết nối lại): {type(req_err).__name__}")
             time.sleep(3)
         except KeyboardInterrupt:
             print("\n[*] Đã dừng bot theo yêu cầu.")

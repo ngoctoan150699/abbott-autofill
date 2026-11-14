@@ -102,13 +102,18 @@ class AbbottAutomationRunner:
                 if not ok_rent or not phone or not order_id:
                     return False, f"Lỗi thuê số: {rent_msg}", None
 
+                def cancel_order(reason):
+                    ok_cancel, cancel_message = OtpService.cancel_rental(self.provider, self.token, order_id)
+                    return False, f"{reason}. {'Hủy đơn: ' if ok_cancel else '⚠️ Chưa xác nhận hủy: '}{cancel_message}", None
+
+                if self._is_stopped:
+                    return cancel_order("Đã dừng theo yêu cầu")
                 self.on_status(f"📞 <b>[{index}/{total}]</b> Đã lấy số: <code>{phone}</code> (Order: {order_id})")
 
                 # BƯỚC 3: Điền SĐT vào trang web
                 phone_input = self._find_phone_input(page)
                 if not phone_input:
-                    OtpService.cancel_rental(self.provider, self.token, order_id)
-                    return False, "Không tìm thấy ô nhập Số điện thoại trên web!", None
+                    return cancel_order("Không tìm thấy ô nhập Số điện thoại trên web")
 
                 phone_input.fill(phone)
                 self._sleep_delay(1.0)
@@ -116,33 +121,43 @@ class AbbottAutomationRunner:
                 # Bấm nút "Gửi mã" / "Nhận OTP"
                 send_code_btn = self._find_send_code_button(page)
                 if not send_code_btn:
-                    OtpService.cancel_rental(self.provider, self.token, order_id)
-                    return False, "Không tìm thấy nút 'Gửi mã' trên trang web!", None
+                    return cancel_order("Không tìm thấy nút 'Gửi mã' trên trang web")
+                if self._is_stopped:
+                    return cancel_order("Đã dừng theo yêu cầu")
 
                 send_code_btn.click()
                 self.on_status(f"⏳ <b>[{index}/{total}]</b> Đã bấm gửi mã trên web! Bắt đầu đếm ngược 60s chờ OTP...")
 
                 # BƯỚC 4: Polling OTP trong 60 giây
                 otp_code = None
-                start_time = time.time()
-                while (time.time() - start_time) < self.otp_timeout:
+                deadline = time.monotonic() + self.otp_timeout
+                errors = 0
+                checks = 0
+                while time.monotonic() < deadline:
                     if self._is_stopped:
-                        OtpService.cancel_rental(self.provider, self.token, order_id)
-                        return False, "Đã hủy bởi người dùng", None
+                        return cancel_order("Đã dừng theo yêu cầu")
 
                     st, code, sms = OtpService.check_otp(self.provider, self.token, order_id)
+                    checks += 1
                     if st == "success" and code:
                         otp_code = code
                         break
-                    elif st in ("cancelled", "expired"):
-                        break
-                    time.sleep(2.5)
+                    if st in ("cancelled", "expired"):
+                        return False, f"Đơn {order_id}: {sms}; hãy kiểm tra trạng thái và hoàn tiền tại nhà cung cấp", None
+                    if st == "error":
+                        errors += 1
+                        if errors >= 3:
+                            return cancel_order(f"Lỗi kiểm tra OTP liên tiếp: {sms}")
+                    else:
+                        errors = 0
+                    time.sleep(min(2.5, max(0, deadline - time.monotonic())))
 
                 if not otp_code:
-                    self.on_status(f"⚠️ <b>[{index}/{total}]</b> Quá {self.otp_timeout}s không có OTP! Đang hủy đơn hoàn tiền...")
-                    OtpService.cancel_rental(self.provider, self.token, order_id)
-                    return False, f"Quá {self.otp_timeout}s không nhận được OTP cho số {phone} (Đã hủy hoàn tiền)", None
+                    self.on_status(f"⚠️ <b>[{index}/{total}]</b> Quá {self.otp_timeout}s không nhận được OTP; đang yêu cầu hủy đơn...")
+                    return cancel_order(f"Quá {self.otp_timeout}s không nhận OTP cho số {phone} (đã kiểm tra {checks} lần)")
 
+                if self._is_stopped:
+                    return False, "Đã dừng sau khi nhận OTP; kiểm tra trạng thái đơn tại nhà cung cấp", None
                 self.on_status(f"🔑 <b>[{index}/{total}]</b> Nhận OTP thành công: <code>{otp_code}</code>")
 
                 # BƯỚC 5: Điền OTP & Bấm Xác thực

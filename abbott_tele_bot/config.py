@@ -183,7 +183,10 @@ def parse_people_lines(text: str, default_hospital: str = "") -> list:
         line = line.strip()
         if not line:
             continue
-        parts = [part.strip() for part in re.split(r"\s+-\s+", line)]
+        # Phân cách cần ít nhất một khoảng trắng cạnh dấu -, giữ nguyên dấu gạch trong tên khoa/BV.
+        parts = [part.strip() for part in re.split(r"\s+-\s*|\s*-\s+", line, maxsplit=1)]
+        if len(parts) == 2:
+            parts.extend(part.strip() for part in re.split(r"\s+-\s+", parts.pop()))
         if len(parts) not in (3, 4, 5) or not all(parts):
             raise ValueError(f"Dòng {line_number}: cần Tên - Khoa - Chức danh (hoặc Tên - Khoa Khác - Tên khoa - Chức danh).")
         name, first, second = parts[:3]
@@ -241,7 +244,9 @@ def normalize_people_lines(text: str, default_hospital: str = "") -> str:
     }
     lines = []
     for p, original in zip(parse_people_lines(text, default_hospital), (l for l in text.splitlines() if l.strip())):
-        parts = re.split(r"\s+-\s+", original.strip())
+        parts = re.split(r"\s+-\s*|\s*-\s+", original.strip(), maxsplit=1)
+        if len(parts) == 2:
+            parts.extend(re.split(r"\s+-\s+", parts.pop()))
         explicit_other = clean_no_accent(parts[1]).lower() in ("khac", "khoa khac", "phong ban khac", "phong khac")
         has_hospital = len(parts) == (5 if explicit_other else 4)
         dept = f"Khoa Khác - {p['otherDepartment']}" if p['department'] == "Khac" else departments.get(p['department'], p['department'])
